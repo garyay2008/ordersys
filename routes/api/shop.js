@@ -5,6 +5,7 @@ const fs = require('fs')
 const path = require('path')
 const formidable = require('formidable')
 const Shop = require('../../models/Shop')
+const config = require('../../config/config')
 
 // $route GET api/shop/get
 // @desc 获取店铺信息，返回json数据
@@ -59,14 +60,16 @@ router.post('/create', async (req, res) => {
 // @access public
 router.post('/upload', (req, res) => {
   let form = new formidable.IncomingForm()
-  form.uploadDir='public/shop'
+  const shopDir = path.join(config.publicDir, 'shop')
+  fs.mkdirSync(shopDir, { recursive: true })
+  form.uploadDir = shopDir
   form.parse(req, (err, fields, files) => {
     fs.rename(
       files.file.path,
-      path.join(__dirname, '../../public/shop', files.file.name),
+      path.join(shopDir, files.file.name),
       err => {
         if (err) throw err
-        let url = `http://${req.headers.host}/shop/${files.file.name}`
+        let url = `/shop/${files.file.name}`
         res.json({ status: 'ok', url })
       }
     )

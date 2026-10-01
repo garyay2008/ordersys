@@ -9,7 +9,7 @@
                 :rules="rules"
                 :hide-required-asterisk="true"
                 >
-                <el-form-item label="店铺图片">
+                <el-form-item label="店鋪圖片">
                     <el-upload
                     class="logo-uploader"
                     :action="uploadUrl"
@@ -18,18 +18,18 @@
                     :before-upload="beforeImgUpload">
                     <img v-if="form.shopImg" :src="form.shopImg" class="logo">
                     <i v-else class="el-icon-plus logo-uploader-icon"></i>
-                    <div slot="tip" class="el-upload__tip">(只能上传jpg文件，且不超过2MB)</div>
+                    <div slot="tip" class="el-upload__tip">(只能上傳jpg文件，且不超過2MB)</div>
                     </el-upload>
                 </el-form-item>
 
-                <el-form-item label="店铺名称" prop="shopName">
-                    <el-input v-model="form.shopName" placeholder="请输入店铺名称！"></el-input>
+                <el-form-item label="店鋪名稱" prop="shopName">
+                    <el-input v-model="form.shopName" placeholder="請輸入店鋪名稱！"></el-input>
                 </el-form-item>
-                <el-form-item label="店铺简介" prop="shopIntro">
-                    <el-input type="textarea" v-model="form.shopIntro" :autosize="{ minRows: 4, maxRows: 4}" show-word-limit placeholder="请输入店铺简介！"></el-input>
+                <el-form-item label="店鋪簡介" prop="shopIntro">
+                    <el-input type="textarea" v-model="form.shopIntro" :autosize="{ minRows: 4, maxRows: 4}" show-word-limit placeholder="請輸入店鋪簡介！"></el-input>
                 </el-form-item>
-                <el-form-item label="店铺公告" prop="shopNotice">
-                    <el-input type="textarea" v-model="form.shopNotice" :autosize="{ minRows: 4, maxRows: 4}" show-word-limit placeholder="请输入店铺公告！"></el-input>
+                <el-form-item label="店鋪公告" prop="shopNotice">
+                    <el-input type="textarea" v-model="form.shopNotice" :autosize="{ minRows: 4, maxRows: 4}" show-word-limit placeholder="請輸入店鋪公告！"></el-input>
                 </el-form-item>
                     <el-button
                     type="primary"
@@ -57,16 +57,16 @@ export default {
       },
       rules: {
         shopName: [
-          { required: true, message: '店铺名称不能为空！', trigger: 'blur' },
-          { min: 2, max: 18, message: '长度在2到18个字符之间！', trigger: 'blur' }
+          { required: true, message: '店鋪名稱不能為空！', trigger: 'blur' },
+          { min: 2, max: 18, message: '長度在2到18個字符之間！', trigger: 'blur' }
         ],
         shopIntro: [
-          { required: true, message: '店铺简介不能为空！', trigger: 'blur' },
-          { min: 10, message: '店铺简介最少为10个字符！', trigger: 'blur' }
+          { required: true, message: '店鋪簡介不能為空！', trigger: 'blur' },
+          { min: 10, message: '店鋪簡介最少為10個字符！', trigger: 'blur' }
         ],
         shopNotice: [
-          { required: true, message: '店铺公告不能为空！', trigger: 'blur' },
-          { min: 10, message: '店铺公告最少为10个字符！', trigger: 'blur' }
+          { required: true, message: '店鋪公告不能為空！', trigger: 'blur' },
+          { min: 10, message: '店鋪公告最少為10個字符！', trigger: 'blur' }
         ]
       }
     }
@@ -74,7 +74,7 @@ export default {
   methods: {
     submitForm (formName) {
       if (!this.form.shopImg) {
-        this.$message({ type: 'error', message: '店铺图片上传失败请重试' })
+        this.$message({ type: 'error', message: '店鋪圖片上傳失敗請重試' })
         return
       }
       this.$refs[formName].validate(valid => {
@@ -92,7 +92,7 @@ export default {
         } else {
           this.$message({
             type: 'error',
-            message: '填写信息有误请重新输入！'
+            message: '填寫信息有誤請重新輸入！'
           })
           return false
         }
@@ -108,10 +108,10 @@ export default {
       const isLt2M = file.size / 1024 / 1024 < 2
 
       if (!isJPG) {
-        this.$message.error('上传图片只能是 JPG 格式!')
+        this.$message.error('上傳圖片只能是 JPG 格式!')
       }
       if (!isLt2M) {
-        this.$message.error('上传图片大小不能超过 2MB!')
+        this.$message.error('上傳圖片大小不能超過 2MB!')
       }
       return isJPG && isLt2M
     }

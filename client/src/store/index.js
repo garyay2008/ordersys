@@ -5,8 +5,8 @@ Vue.use(Vuex)
 
 export default new Vuex.Store({
   state: {
-    isAuthenticated:false,
-    user:{}
+    isAuthenticated: false,
+    user: {}
   },
   mutations: {
     changeStat (state, status) {
@@ -25,7 +25,7 @@ export default new Vuex.Store({
     },
     clearCurrentState ({ commit }) {
       commit('changeStat', false)
-      commit('setUser',null)
+      commit('setUser', null)
     }
   },
   getters: {

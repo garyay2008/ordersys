@@ -23,9 +23,17 @@ export default {
   },
   created () {
     if (localStorage.orderTk) {
-      const decoded = jwtDecode(localStorage.orderTk)
-      this.$store.dispatch('changeStat', !this.isEmpty(decoded))
-      this.$store.dispatch('setUser', decoded)
+      try {
+        const decoded = jwtDecode(localStorage.orderTk)
+        if (decoded && typeof decoded === 'object' && Object.keys(decoded).length > 0) {
+          this.$store.dispatch('changeStat', true)
+          this.$store.dispatch('setUser', decoded)
+        } else {
+          localStorage.removeItem('orderTk')
+        }
+      } catch (e) {
+        localStorage.removeItem('orderTk')
+      }
     }
   }
 }
@@ -37,13 +45,13 @@ body,
 #app {
   width: 100%;
   height: 100%;
-  font-family: "Helvetica Neue",Helvetica,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","微软雅黑",Arial,sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
 }
 #app {
   margin: 0;
   padding: 0;
 }
-/*修改滚动条样式*/
+/*修改滾動條樣式*/
 ::-webkit-scrollbar{
   width:10px;
   height:10px;

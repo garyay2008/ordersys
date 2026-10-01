@@ -1,17 +1,17 @@
 <template>
     <div id="login">
         <div class="login-box">
-            <p class="login-title">欢迎使用点餐系统</p>
+            <p class="login-title">歡迎使用點餐系統</p>
             <el-row>
                 <el-col :span="24">
                     <el-form ref="loginForm" :model="loginForm" :rules="rules" label-width="40px">
-                        <el-form-item label="帐号" prop="username">
-                            <el-input v-model="loginForm.username" placeholder="请输入帐号"></el-input>
+                        <el-form-item label="帳號" prop="username">
+                            <el-input v-model="loginForm.username" placeholder="請輸入帳號"></el-input>
                         </el-form-item>
-                        <el-form-item label="密码" prop="password">
-                            <el-input type="password" v-model="loginForm.password" @keyup.enter.native="login('loginForm')" show-password placeholder="请输入密码"></el-input>
+                        <el-form-item label="密碼" prop="password">
+                            <el-input type="password" v-model="loginForm.password" @keyup.enter.native="login('loginForm')" show-password placeholder="請輸入密碼"></el-input>
                         </el-form-item>
-                            <el-button type="primary" class="submitBtn" @click="login('loginForm')">登录</el-button>
+                            <el-button type="primary" class="submitBtn" @click="login('loginForm')">登錄</el-button>
                     </el-form>
                 </el-col>
             </el-row>
@@ -26,14 +26,14 @@ export default {
   data () {
     const checkUser = (rule, value, callback) => {
       if (value === '') {
-        callback(new Error('用户名不能为空！'))
+        callback(new Error('用戶名不能為空！'))
       } else {
         callback()
       }
     }
     const checkPass = (rule, value, callback) => {
       if (value === '') {
-        callback(new Error('密码不能为空！'))
+        callback(new Error('密碼不能為空！'))
       } else {
         callback()
       }
@@ -45,12 +45,12 @@ export default {
       },
       rules: {
         username: [
-          { validator: checkUser, message: '用户名不能为空！', trigger: 'blur' },
-          { min: 6, max: 10, message: '长度在6到10个字符之间！', trigger: 'blur' }
+          { validator: checkUser, message: '用戶名不能為空！', trigger: 'blur' },
+          { min: 6, max: 10, message: '長度在6到10個字符之間！', trigger: 'blur' }
         ],
         password: [
-          { validator: checkPass, message: '密码不能为空！', trigger: 'blur' },
-          { min: 6, max: 16, message: '长度在6到16个字符之间！' }
+          { validator: checkPass, message: '密碼不能為空！', trigger: 'blur' },
+          { min: 6, max: 16, message: '長度在6到16個字符之間！' }
         ]
       }
     }
@@ -119,5 +119,11 @@ export default {
     display: block;
     margin: 0 auto;
     box-shadow: 0px 0px 20px rgba(53, 141, 230, 0.562);
+    background: #297fff;
+    border-color: #297fff;
+  }
+  #login .submitBtn:hover{
+    background: #5b9cff;
+    border-color: #5b9cff;
   }
 </style>

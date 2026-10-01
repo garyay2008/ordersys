@@ -3,25 +3,25 @@
         <el-row>
             <el-col class="home-card" :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
                 <div class="card-bg card-1">
-                    <h3 class="card-title">今日订单</h3>
+                    <h3 class="card-title">今日訂單</h3>
                     <span class="card-data">{{ cardData.orderCounts }}</span>
                 </div>
             </el-col>
             <el-col class="home-card" :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
                 <div class="card-bg card-2">
                     <h3 class="card-title">今日收入</h3>
-                    <span class="card-data">￥{{ cardData.totalIncome }}</span>
+                    <span class="card-data">${{ cardData.totalIncome }}</span>
                 </div>
             </el-col>
             <el-col class="home-card" :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
                 <div class="card-bg card-3">
-                    <h3 class="card-title">商品数量</h3>
+                    <h3 class="card-title">貨品數量</h3>
                     <span class="card-data">{{ cardData.commodityCounts }}</span>
                 </div>
             </el-col>
             <el-col class="home-card" :xs="12" :sm="12" :md="6" :lg="6" :xl="6">
                 <div class="card-bg card-4">
-                    <h3 class="card-title">分类数量</h3>
+                    <h3 class="card-title">分類數量</h3>
                     <span class="card-data">{{ cardData.categoryCounts }}</span>
                 </div>
             </el-col>
@@ -39,15 +39,25 @@
 
 <script>
 import elementResizeDetectorMaker from 'element-resize-detector'
+import ECharts from 'vue-echarts'
+import 'echarts/lib/chart/line'
+import 'echarts/lib/component/tooltip'
+import 'echarts/lib/component/title'
+import 'echarts/lib/component/legend'
+import 'echarts/lib/component/dataZoom'
+import 'echarts/lib/component/grid'
 export default {
   name: 'home',
+  components: {
+    chart: ECharts
+  },
   data () {
     return {
       chartData: {
         title: {
           left: 'center',
-          text: '运营状况统计',
-          subtext: '每日的 "营业收入" 和 "订单数量" 数据统计'
+          text: '運營狀況統計',
+          subtext: '每日的 "營業收入" 和 "訂單數量" 數據統計'
         },
         legend: {
           type: 'plain',
@@ -62,7 +72,7 @@ export default {
             }
           },
           border: 'none',
-          formatter: '营业收入: ￥{c0}<br />订单数量: &nbsp;{c1}'
+          formatter: '營業收入: {c0}<br />訂單數量: &nbsp;{c1}'
         },
         xAxis: {
           type: 'category',
@@ -104,14 +114,14 @@ export default {
         ],
         series: [
           {
-            name: '营业收入',
+            name: '營業收入',
             type: 'line',
             smooth: true,
             symbol: 'circle',
             symbolSize: 5,
             sampling: 'average',
             itemStyle: {
-              color: '#8ec6ad'
+              color: '#297fff'
             },
             stack: 'a',
             areaStyle: {
@@ -122,7 +132,7 @@ export default {
                 x2: 0,
                 y2: 1,
                 colorStops: [{
-                  offset: 0, color: '#8ec6ad'
+                  offset: 0, color: '#297fff'
                 }, {
                   offset: 1, color: '#ffe'
                 }]
@@ -131,7 +141,7 @@ export default {
             data: []
           },
           {
-            name: '订单数量',
+            name: '訂單數量',
             type: 'line',
             smooth: true,
             // stack: 'a',
@@ -227,13 +237,13 @@ export default {
         left: 24%;
     }
     .card-1{
-        background-image: linear-gradient(230deg, #759bff, #843cf6);
+        background-image: linear-gradient(230deg, #297fff, #1e6fe0);
     }
     .card-2{
-        background-image: linear-gradient(230deg, #fc5286, #fbaaa2);
+        background-image: linear-gradient(230deg, #5b9cff, #297fff);
     }
     .card-3{
-        background-image: linear-gradient(230deg, #ffc480, #ff763b);
+        background-image: linear-gradient(230deg, #1e5bb5, #297fff);
     }
     .card-4{
         background-image: linear-gradient(230deg, #0e4cfd, #6a8eff);

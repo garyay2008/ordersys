@@ -1,0 +1,20 @@
+node_modules
+client/node_modules
+client/dist
+license.key
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+.dockerignore
+*.log
+.DS_Store
+screenshots
+ismreport
+full_backup_*.json
+find_admin_pwd*.js
+fix_admin.js
+convert_*.js
+*.bak
+*.bak_*
+WhatsApp Image*.jpeg

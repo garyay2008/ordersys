@@ -14,6 +14,10 @@ export default {
   props: {
     food: {
       type: Object
+    },
+    requireMods: {
+      type: Boolean,
+      default: false
     }
   },
   methods: {
@@ -21,9 +25,15 @@ export default {
       if (!event._constructed) {
         return
       }
+      if (this.requireMods) {
+        this.$emit('require-mods', this.food)
+        return
+      }
       if (!this.food.count) {
+        // eslint-disable-next-line vue/no-mutating-props
         this.$set(this.food, 'count', 1)
       } else {
+        // eslint-disable-next-line vue/no-mutating-props
         this.food.count++
       }
     },
@@ -32,6 +42,7 @@ export default {
         return
       }
       if (this.food.count) {
+        // eslint-disable-next-line vue/no-mutating-props
         this.food.count--
       }
     }
@@ -40,42 +51,61 @@ export default {
 </script>
 <style>
 .cartcontrol{
-	font-size: 0;
+    font-size: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
 .cartcontrol .cart-decrease{
-    display: inline-block;
-    padding: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
     transform: translate3d(0,0,0) rotate(0);
 }
 .cartcontrol .cart-decrease > .inner{
     display: inline-block;
-    line-height: 24px;
-    font-size: 24px;
-    color: rgb(0,160,220);
+    line-height: 28px;
+    font-size: 26px;
+    color: var(--primary);
+    transition: all 0.15s ease;
+}
+.cartcontrol .cart-decrease:active > .inner{
+    transform: scale(0.9);
 }
 
 .cartcontrol .cart-decrease.move-enter-active, .cartcontrol .cart-decrease.move-leave-active{
-    transition: all .4s linear;
+    transition: all .35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .cartcontrol .cart-decrease.move-enter, .cartcontrol .cart-decrease.move-leave-to{
-    opacity: 1;
-    transform: translate3d(24px,0,0) rotate(180deg);
+    opacity: 0;
+    transform: translate3d(20px,0,0) rotate(90deg);
 }
 .cartcontrol > .cart-count{
-    display: inline-block;
-    vertical-align: top;
-    width: 12px;
-    padding-top: 6px;
-    line-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 28px;
+    line-height: 28px;
     text-align: center;
-    font-size: 10px;
-    color: rgb(147,153,159);
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
 }
 .cartcontrol > .cart-add{
-    display: inline-block;
-    padding: 6px;
-    line-height: 24px;
-    font-size: 24px;
-    color: rgb(0,160,220);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    font-size: 26px;
+    color: var(--primary);
+    transition: all 0.15s ease;
+}
+.cartcontrol > .cart-add:active{
+    transform: scale(0.9);
 }
 </style>

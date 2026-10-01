@@ -9,81 +9,89 @@
                 <el-table-column type="expand">
                 <template slot-scope="props">
                     <el-form label-position="left" inline class="demo-table-expand">
-                    <el-form-item label="订单编号">
+                    <el-form-item label="訂單編號">
                         <span>{{ props.row.orderNo }}</span>
                     </el-form-item>
-                    <el-form-item label="订单桌号">
+                    <el-form-item label="訂單桌號">
                         <span>{{ props.row.deskNo }}</span>
                     </el-form-item>
-                    <el-form-item label="订单内容">
+                    <el-form-item label="訂單內容">
                         <ul>
                             <li v-for="item in props.row.order" :key="item._id">
-                                <span>{{ item.name }}</span><span>x{{ item.count }}</span><span>￥{{ item.price }}</span>
+                                <span>{{ item.name }}</span><span>x{{ item.count }}</span><span>${{ item.price }}</span>
                             </li>
                         </ul>
                     </el-form-item>
-                    <el-form-item label="订单备注">
-                        <span>{{ props.row.remark ===''?'无':props.row.remark }}</span>
+                    <el-form-item label="訂單備註">
+                        <span>{{ props.row.remark ===''?'無':props.row.remark }}</span>
                     </el-form-item>
-                    <el-form-item label="订单金额">
-                        <span class="totalPrice">￥{{ props.row.totalPrice }}</span>
+                    <el-form-item label="訂單金額">
+                        <span class="totalPrice">${{ props.row.totalPrice }}</span>
                     </el-form-item>
-                    <el-form-item label="下单时间">
+                    <el-form-item label="下單時間">
                         <span>{{ props.row.date | formatDate }}</span>
                     </el-form-item>
                     </el-form>
                 </template>
                 </el-table-column>
                 <el-table-column
-                label="订单桌号"
+                label="訂單桌號"
                 width="80"
                 align="center"
                 prop="deskNo">
                 </el-table-column>
                 <el-table-column
                 align="center"
-                label="订单内容">
+                label="訂單內容">
                 <template slot-scope="scope">
                     <span class="ellipsis">{{ scope.row.order | orderList }}</span>
                 </template>
                 </el-table-column>
                 <el-table-column
                 align="center"
-                label="订单备注">
+                label="訂單備註">
                 <template slot-scope="scope">
-                    <span class="ellipsis">{{ scope.row.remark===''?"无":scope.row.remark }}</span>
+                    <span class="ellipsis">{{ scope.row.remark===''?"無":scope.row.remark }}</span>
                 </template>
                 </el-table-column>
                 <el-table-column
                 align="center"
                 width="100"
-                label="订单金额">
+                label="訂單金額">
                 <template slot-scope="scope">
-                    <span class="totalPrice">￥{{ scope.row.totalPrice }}</span>
+                    <span class="totalPrice">${{ scope.row.totalPrice }}</span>
                 </template>
                 </el-table-column>
                 <el-table-column
                 align="center"
                 fixed="right"
                 width="80"
-                label="订单状态">
+                label="訂單狀態">
                     <template slot-scope="scope">
                         <el-tag
                         :type="scope.row.state === 0 ? 'primary' : 'success'"
                         disable-transitions>
-                            {{ scope.row.state===0?"待处理":"已完成" }}
+                            {{ scope.row.state===0?"待處理":"已完成" }}
                         </el-tag>
                     </template>
                 </el-table-column>
                 <el-table-column
                 align="center"
                 fixed="right"
-                width="160"
-                label="订单操作">
+                width="220"
+                label="訂單操作">
                     <template slot-scope="scope">
-                        <el-button size="mini" type="success" @click="finish(scope.row)">完成</el-button>&nbsp;
+                        <el-dropdown @command="handlePrint" style="margin-right: 6px;">
+                            <el-button size="mini" type="primary">打印<i class="el-icon-arrow-down el-icon--right"></i></el-button>
+                            <el-dropdown-menu slot="dropdown">
+                                <el-dropdown-item :command="{ row: scope.row, type: 'kitchen' }">後廚小票</el-dropdown-item>
+                                <el-dropdown-item :command="{ row: scope.row, type: 'receipt' }">結賬小票</el-dropdown-item>
+                                <el-dropdown-item :command="{ row: scope.row, type: 'serving' }">上菜紙</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </el-dropdown>
+                        <el-button size="mini" type="success" @click="finish(scope.row)">完成</el-button>
                         <el-popconfirm
-                        title="确定要取消当前订单吗？"
+                        title="確定要取消當前訂單嗎？"
                         @onConfirm="cancel(scope.row)"
                         >
                         <el-button slot="reference" size="mini" type="warning">取消</el-button>
@@ -108,11 +116,12 @@ export default {
   },
   methods: {
     finish (data) {
-      this.$axios.post('/api/order/finish', { _id: data._id })
+      const cashier = (this.$store.state.user && this.$store.state.user.username) || ''
+      this.$axios.post('/api/order/finish', { _id: data._id, cashier })
         .then(res => {
           this.$message({
             type: 'success',
-            message: '订单已完成！'
+            message: '訂單已完成！'
           })
           this.statisticData(data)
           this.initTableData()
@@ -126,12 +135,21 @@ export default {
         .then(res => {
           this.$message({
             type: 'success',
-            message: '订单已取消！'
+            message: '訂單已取消！'
           })
           this.initTableData()
         })
         .catch(err => {
           console.log(err)
+        })
+    },
+    handlePrint (cmd) {
+      this.$axios.post('/api/order/print', { _id: cmd.row._id, type: cmd.type })
+        .then(res => {
+          this.$message({ type: 'success', message: res.data })
+        })
+        .catch(err => {
+          this.$message({ type: 'error', message: err.response ? err.response.data : '打印失敗' })
         })
     },
     async statisticData (data) {
@@ -172,8 +190,8 @@ export default {
     },
     formatDate (time) {
       const date = new Date(time)
-      const date_value = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate() + ' ' + date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds()
-      return date_value
+      const dateValue = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate() + ' ' + date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds()
+      return dateValue
     }
   }
 }

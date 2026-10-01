@@ -1,0 +1,54 @@
+name: Build Desktop (Windows + Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: --linux
+            artifact: ordersys-linux
+          - os: windows-latest
+            target: --win
+            artifact: ordersys-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install backend deps（含 electron / electron-builder）
+        run: npm install --legacy-peer-deps
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci --legacy-peer-deps
+
+      - name: Build frontend
+        run: npm run build:client
+
+      - name: Download mongod
+        run: npm run download:mongod
+
+      - name: Package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.target }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist_electron/*
+          if-no-files-found: error

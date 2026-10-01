@@ -4,17 +4,17 @@
             <el-col :xs="24" :sm="18" :md="12" :lg="10" :xl="6">
                 <img :src="form.avatar" class="user-avatar">
                 <el-form ref="form" :model="form" label-width="80px">
-                    <el-form-item label="用 户 名 ">
+                    <el-form-item label="用 戶 名 ">
                         <el-input v-model="form.username"></el-input>
                     </el-form-item>
-                    <el-form-item label="电子邮箱">
+                    <el-form-item label="電子郵箱">
                         <el-input v-model="form.email"></el-input>
                     </el-form-item>
-                    <el-form-item label="原始密码">
-                        <el-input type="password" v-model="form.password" placeholder="不修改密码可不填写"></el-input>
+                    <el-form-item label="原始密碼">
+                        <el-input type="password" v-model="form.password" placeholder="不修改密碼可不填寫"></el-input>
                     </el-form-item>
-                    <el-form-item label="新 密 码 ">
-                        <el-input type="password" v-model="form.newpassword" placeholder="不修改密码可不填写"></el-input>
+                    <el-form-item label="新 密 碼 ">
+                        <el-input type="password" v-model="form.newpassword" placeholder="不修改密碼可不填寫"></el-input>
                     </el-form-item>
                         <el-button type="primary" class="submitBtn" @click="update">更新信息</el-button>
                 </el-form>
@@ -42,7 +42,7 @@ export default {
     update () {
       this.$axios.post('/api/users/chinfo', this.form)
         .then(res => {
-          if (res.data === '密码修改成功,请重新登录！') {
+          if (res.data === '密碼修改成功,請重新登錄！') {
             localStorage.removeItem('orderTk')
             this.$store.dispatch('clearCurrentState')
             this.$message({

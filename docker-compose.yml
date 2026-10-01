@@ -1,0 +1,103 @@
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: ordersys-mongo
+    restart: unless-stopped
+    command: ["mongod", "--auth"]
+    environment:
+      TZ: "Asia/Hong_Kong"
+      MONGO_INITDB_ROOT_USERNAME: ordersys
+      MONGO_INITDB_ROOT_PASSWORD: "306670c6ce55a4f30ed230fd8bb9e366b019"
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./full_backup_20260914_100417.json:/seed/backup.json:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--username", "ordersys", "--password", "306670c6ce55a4f30ed230fd8bb9e366b019", "--authenticationDatabase", "admin", "--quiet", "--eval", "db.runCommand({ping:1}).ok ? quit(0) : quit(1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - ordersys
+
+  app:
+    build: .
+    container_name: ordersys-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      MONGO_URI: "mongodb://ordersys:306670c6ce55a4f30ed230fd8bb9e366b019@mongo:27017/orderSYS?authSource=admin"
+      REDIS_URL: "redis://redis:6379"
+      JWT_SECRET: "e9d2d19f8c27bc6cd089140797a4a50caf88fbdc5a90c7771da306e7d7df0906"
+      LICENSE_SECRET: "c740d501c9f84d4a5795a3603fdb38f3435ea1861a270997026ec0458be63d97"
+      LICENSE_KEY: ""
+      # MACHINE_ID: "customer-machine-id"   # Docker 部署建議設定，作為授權綁定的機器識別碼
+      # LICENSE_ENFORCE: "1"                 # 設定為 1 才強制攔截未授權/過期的 /api 請求
+      NODE_ENV: "production"
+      TZ: "Asia/Hong_Kong"
+      CUPS_URL: "http://cups:631"
+      CUPS_USER: "print"
+      CUPS_PASSWORD: "print"
+      QUEUE_UI_USER: "admin"
+      QUEUE_UI_PASSWORD: "ordersys"
+    volumes:
+      - ./full_backup_20260914_100417.json:/seed/backup.json:ro
+      - ./public/logo:/app/public/logo
+      - ./public/qr:/app/public/qr
+      - ./public/shop:/app/public/shop
+      - ./public/fonts:/app/public/fonts
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      cups:
+        condition: service_started
+    networks:
+      - ordersys
+
+  redis:
+    image: redis:7-alpine
+    container_name: ordersys-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - ordersys
+
+  cups:
+    image: olbat/cupsd:latest
+    container_name: ordersys-cups
+    restart: unless-stopped
+    ports:
+      - "631:631"
+    environment:
+      TZ: "Asia/Hong_Kong"
+      CUPS_USER_ADMIN: "admin"
+      CUPS_USER_PASSWORD: "posprint"
+    volumes:
+      - cups_config:/etc/cups
+      - cups_spool:/var/spool/cups
+    networks:
+      - ordersys
+
+volumes:
+  mongo_data:
+  redis_data:
+  cups_config:
+  cups_spool:
+
+networks:
+  ordersys:
+    driver: bridge

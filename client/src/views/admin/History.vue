@@ -1,14 +1,14 @@
 <template>
     <div class="order">
         <el-row>
-            <span class="search-tittle">订单搜索：</span>
+            <span class="search-tittle">訂單搜索：</span>
             <el-col :xs="8" :sm="6" :md="6" :lg="5">
                 <el-date-picker
                 v-model="search"
                 @change="initTableData"
                 type="date"
                 size="small"
-                placeholder="选择日期">
+                placeholder="選擇日期">
                 </el-date-picker>
             </el-col>
         </el-row>
@@ -21,46 +21,46 @@
                 <el-table-column type="expand">
                 <template slot-scope="props">
                     <el-form label-position="left" inline class="demo-table-expand">
-                    <el-form-item label="订单编号">
+                    <el-form-item label="訂單編號">
                         <span>{{ props.row.orderNo }}</span>
                     </el-form-item>
-                    <el-form-item label="订单桌号">
+                    <el-form-item label="訂單桌號">
                         <span>{{ props.row.deskNo }}</span>
                     </el-form-item>
-                    <el-form-item label="订单内容">
+                    <el-form-item label="訂單內容">
                         <ul>
                             <li v-for="item in props.row.order" :key="item._id">
-                                <span>{{ item.name }}</span><span>x{{ item.count }}</span><span>￥{{ item.price }}</span>
+                                <span>{{ item.name }}</span><span>x{{ item.count }}</span><span>${{ item.price }}</span>
                             </li>
                         </ul>
                     </el-form-item>
-                    <el-form-item label="订单备注">
-                        <span>{{ props.row.remark ===''?'无':props.row.remark }}</span>
+                    <el-form-item label="訂單備註">
+                        <span>{{ props.row.remark ===''?'無':props.row.remark }}</span>
                     </el-form-item>
-                    <el-form-item label="订单金额">
-                        <span class="totalPrice">￥{{ props.row.totalPrice }}</span>
+                    <el-form-item label="訂單金額">
+                        <span class="totalPrice">${{ props.row.totalPrice }}</span>
                     </el-form-item>
-                    <el-form-item label="下单时间">
+                    <el-form-item label="下單時間">
                         <span>{{ props.row.date | formatDate }}</span>
                     </el-form-item>
                     </el-form>
                 </template>
                 </el-table-column>
                 <el-table-column
-                label="订单编号"
+                label="訂單編號"
                 width="170"
                 align="center"
                 prop="orderNo">
                 </el-table-column>
                 <el-table-column
-                label="订单桌号"
+                label="訂單桌號"
                 width="80"
                 align="center"
                 prop="deskNo">
                 </el-table-column>
                 <el-table-column
                 align="center"
-                label="订单内容">
+                label="訂單內容">
                 <template slot-scope="scope">
                     <span class="ellipsis">{{ scope.row.order | orderList }}</span>
                 </template>
@@ -68,7 +68,7 @@
                 <el-table-column
                 width="150"
                 align="center"
-                label="下单时间">
+                label="下單時間">
                 <template slot-scope="scope">
                     {{ scope.row.date | formatDate }}
                 </template>
@@ -77,21 +77,21 @@
                 align="center"
                 width="100"
                 fixed="right"
-                label="订单金额">
+                label="訂單金額">
                 <template slot-scope="scope">
-                    <span class="totalPrice">￥{{ scope.row.totalPrice }}</span>
+                    <span class="totalPrice">${{ scope.row.totalPrice }}</span>
                 </template>
                 </el-table-column>
                 <el-table-column
                 align="center"
                 fixed="right"
                 width="80"
-                label="订单状态">
+                label="訂單狀態">
                     <template slot-scope="scope">
                         <el-tag
                         :type="scope.row.state === 0 ? 'primary' : 'success'"
                         disable-transitions>
-                            {{ scope.row.state===0?"待处理":"已完成" }}
+                            {{ scope.row.state===0?"待處理":"已完成" }}
                         </el-tag>
                     </template>
                 </el-table-column>
@@ -99,13 +99,13 @@
                 align="center"
                 fixed="right"
                 width="80"
-                label="订单操作">
+                label="訂單操作">
                     <template slot-scope="scope">
                         <el-popconfirm
-                        title="确定要删除当前订单吗？"
+                        title="確定要刪除當前訂單嗎？"
                         @onConfirm="del(scope.row)"
                         >
-                        <el-button slot="reference" size="mini" type="danger">删除</el-button>
+                        <el-button slot="reference" size="mini" type="danger">刪除</el-button>
                         </el-popconfirm>
                     </template>
                 </el-table-column> -->
@@ -159,7 +159,7 @@ export default {
         .then(res => {
           this.$message({
             type: 'success',
-            message: '订单已删除！'
+            message: '訂單已刪除！'
           })
           this.initTableData()
         })
@@ -199,8 +199,8 @@ export default {
     },
     formatDate (time) {
       const date = new Date(time)
-      const date_value = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate() + ' ' + date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds()
-      return date_value
+      const dateValue = date.getFullYear() + '-' + (date.getMonth() + 1) + '-' + date.getDate() + ' ' + date.getHours() + ':' + date.getMinutes() + ':' + date.getSeconds()
+      return dateValue
     }
   }
 }

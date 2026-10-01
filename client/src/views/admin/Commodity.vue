@@ -1,7 +1,7 @@
 <template>
   <div id="cmmodity">
     <el-row>
-      <span class="search-tittle">商品搜索：</span>
+      <span class="search-tittle">貨品搜索：</span>
       <el-col
         :xs="8"
         :sm="6"
@@ -9,7 +9,7 @@
         :lg="5"
       >
         <el-input
-          placeholder="请输入商品名称"
+          placeholder="請輸入貨品名稱或編號"
           size="small"
           prefix-icon="el-icon-search"
           @input="loadData"
@@ -24,7 +24,7 @@
         size="small"
         class="btn-shadow"
         @click="addCommodity()"
-      >添加商品</el-button>
+      >添加貨品</el-button>
     </el-row>
     <el-row class="row-height">
       <el-col :span="24">
@@ -37,7 +37,7 @@
           <el-table-column
             align="center"
             width="100"
-            label="商品图片"
+            label="貨品圖片"
           >
             <template slot-scope="scope">
               <img
@@ -50,31 +50,66 @@
           </el-table-column>
           <el-table-column
             align="center"
+            prop="plu"
+            width="100"
+            label="PLU 碼"
+          >
+            <template slot-scope="scope">
+              <span v-if="scope.row.plu">{{ scope.row.plu }}</span>
+              <span v-else class="no-station">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            align="center"
+            prop="code"
+            width="120"
+            label="貨品編號"
+          >
+            <template slot-scope="scope">
+              <span v-if="scope.row.code">{{ scope.row.code }}</span>
+              <span v-else class="no-station">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            align="center"
             prop="name"
             width="150"
-            label="商品名称"
+            label="貨品名稱"
           ></el-table-column>
           <el-table-column
             align="center"
             prop="describe"
-            label="商品描述"
+            label="貨品描述"
           ></el-table-column>
           <el-table-column
             align="center"
             prop="category"
             width="120"
-            label="商品分类"
+            label="貨品分類"
           ></el-table-column>
+          <el-table-column
+            align="center"
+            width="190"
+            label="打印機隊列"
+          >
+            <template slot-scope="scope">
+              <template v-if="scope.row.stations && scope.row.stations.length">
+                <el-tag size="mini" v-for="(s, i) in scope.row.stations" :key="i" style="margin: 1px;">{{ s }}</el-tag>
+              </template>
+              <el-tag size="mini" v-else-if="scope.row.station">{{ scope.row.station }}</el-tag>
+              <span v-else class="no-station">未設置</span>
+            </template>
+          </el-table-column>
           <el-table-column
             align="center"
             prop="price"
             width="100"
-            label="商品价格"
+            label="貨品價格"
           ></el-table-column>
           <el-table-column
             align="center"
             width="100"
-            label="商品打折"
+            label="貨品打折"
           >
             <template slot-scope="scope">
               {{ scope.row.isDiscount?'是':'否' }}
@@ -84,12 +119,12 @@
             align="center"
             prop="onSale"
             width="100"
-            label="折前价格"
+            label="折前價格"
           ></el-table-column>
           <el-table-column
             align="center"
             width="100"
-            label="售罄情况"
+            label="售罄情況"
           >
             <template slot-scope="scope">
               {{ scope.row.soldOut?'是':'否' }}
@@ -106,12 +141,17 @@
                 type="text"
                 size="small"
                 @click="editCommodity(scope.row)"
-              >编辑</el-button>
+              >編輯</el-button>
+              <el-button
+                type="text"
+                size="small"
+                @click="copyCommodity(scope.row)"
+              >複製</el-button>
               <el-button
                 type="text"
                 size="small"
                 @click="delCommodity(scope.row)"
-              >删除</el-button>
+              >刪除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -144,6 +184,20 @@
 
 <script>
 import CommodityDialog from '@/components/admin/CommodityDialog'
+
+function makeSpecs (existing) {
+  const arr = []
+  for (let i = 0; i < 10; i++) {
+    const prev = (Array.isArray(existing) && existing[i]) ? existing[i] : {}
+    const raw = prev.price
+    arr.push({
+      name: '價格' + (i + 1),
+      price: (raw === '' || raw == null) ? '' : raw
+    })
+  }
+  return arr
+}
+
 export default {
   name: 'cmmodity',
   data () {
@@ -156,12 +210,20 @@ export default {
       form: {
         img: '',
         name: '',
+        name2: '',
         describe: '',
         category: '',
         price: 0,
         isDiscount: false,
         onSale: 0,
-        soldOut: false
+        soldOut: false,
+        specs: makeSpecs(),
+        stations: [],
+        modCategories: [],
+        plu: '',
+        code: '',
+        openPrice: false,
+        mandatory: false
       },
       tableData: [],
       tableHeight: window.innerHeight - 194,
@@ -201,30 +263,81 @@ export default {
     addCommodity () {
       this.dialog = {
         show: true,
-        title: '添加商品',
+        title: '添加貨品',
         option: 'add'
       }
       this.form = {
         img: '',
         name: '',
+        name2: '',
         describe: '',
         category: '',
         price: 0,
         isDiscount: false,
         onSale: 0,
-        soldOut: false
+        soldOut: false,
+        specs: makeSpecs(),
+        stations: [],
+        modCategories: [],
+        department: '',
+        bundleGroupId: '',
+        plu: '',
+        code: '',
+        openPrice: false,
+        mandatory: false
       }
     },
     editCommodity (row) {
       this.dialog = {
         show: true,
-        title: '编辑商品',
+        title: '編輯貨品',
         option: 'edit'
       }
-      this.form = row
+      this.form = JSON.parse(JSON.stringify(row))
+      if (!this.form.code) this.form.code = ''
+      if (!this.form.name2) this.form.name2 = ''
+      this.form.specs = makeSpecs(row.specs)
+      // 兼容舊數據：單值 station → 多隊列 stations
+      if (!this.form.stations || !this.form.stations.length) {
+        this.form.stations = this.form.station ? [this.form.station] : []
+      }
+      if (!this.form.modCategories) this.form.modCategories = []
+      if (!this.form.department) this.form.department = ''
+      if (this.form.bundleGroupId === undefined) this.form.bundleGroupId = ''
+      if (this.form.openPrice === undefined) this.form.openPrice = false
+      if (this.form.mandatory === undefined) this.form.mandatory = false
+    },
+    copyCommodity (row) {
+      const copy = JSON.parse(JSON.stringify(row))
+      delete copy._id
+      copy.name = row.name + '（副本）'
+      // auto PLU：原 PLU 非空時自動加後綴避免重複
+      if (row.plu) {
+        copy.plu = row.plu + '-C'
+      }
+      // auto 貨品編號：原編號非空時自動加後綴避免重複
+      if (row.code) {
+        copy.code = row.code + '-C'
+      }
+      this.dialog = {
+        show: true,
+        title: '複製貨品',
+        option: 'add'
+      }
+      this.form = copy
+      if (!this.form.name2) this.form.name2 = ''
+      this.form.specs = makeSpecs(row.specs)
+      if (!this.form.stations || !this.form.stations.length) {
+        this.form.stations = this.form.station ? [this.form.station] : []
+      }
+      if (!this.form.modCategories) this.form.modCategories = []
+      if (!this.form.department) this.form.department = ''
+      if (this.form.bundleGroupId === undefined) this.form.bundleGroupId = ''
+      if (this.form.openPrice === undefined) this.form.openPrice = false
+      if (this.form.mandatory === undefined) this.form.mandatory = false
     },
     delCommodity (row) {
-      this.$confirm(`确认删除商品 “${row.name}” 吗？`)
+      this.$confirm(`確認刪除貨品 “${row.name}” 嗎？`)
         .then(_ => {
           this.$axios.post('/api/commodity/del', { _id: row._id })
             .then(result => {
@@ -287,5 +400,9 @@ export default {
 .pagination {
   margin-top: 10px;
   float: right;
+}
+.no-station{
+    color: #c0c4cc;
+    font-size: 12px;
 }
 </style>

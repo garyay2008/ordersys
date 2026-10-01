@@ -3,13 +3,13 @@
         <el-row>
             <i @click="toggleLeft" :class="[show?'el-icon-s-fold':'el-icon-s-unfold','size']"></i>
             <el-col :span="6" class="logo-container">
-                <!-- <span class="title">在线点餐系统</span> -->
+                <!-- <span class="title">POS 後枱</span> -->
             </el-col>
             <el-col :span="6" class="user">
                 <div class="user-info">
                     <img :src="user.avatar" class="avatar" alt="">
                     <div class="welcome">
-                        <p class="name comename">欢迎</p>
+                        <p class="name comename">歡迎</p>
                         <p class="name avatarname">{{ user.username }}</p>
                     </div>
                     <span class="username">
@@ -18,7 +18,7 @@
                                 <i class="el-icon-caret-bottom el-icon--right"></i>
                             </span>
                             <el-dropdown-menu slot="dropdown">
-                                <el-dropdown-item command="info">个人信息</el-dropdown-item>
+                                <el-dropdown-item command="info">個人信息</el-dropdown-item>
                                 <el-dropdown-item command="logout">退出</el-dropdown-item>
                             </el-dropdown-menu>
                         </el-dropdown>
@@ -29,7 +29,7 @@
         </el-row>
         <div class="audioBar">
             <audio ref="ding" src="../../assets/audio/ding.mp3">
-            您的浏览器不支持 audio 标签。
+            您的瀏覽器不支持 audio 標籤。
             </audio>
         </div>
     </div>
@@ -76,10 +76,10 @@ export default {
   },
   sockets: {
     playAudio () {
-      this.$refs.ding.play()
+      // 已關掉新訂單聲音提示，僅保留桌面通知
       this.$notify({
-        title: '您有新的订单',
-        message: '请前往订单管理页面查看！',
+        title: '您有新的訂單',
+        message: '請前往訂單管理頁面查看！',
         type: 'success',
         offset: 60
       })
@@ -98,8 +98,10 @@ export default {
         height: 60px;
         width: 100%;
         padding: 8px 16px;
-        box-shadow: 1px 0px 40px rgba(58, 59, 69, 0.3);
-        margin-bottom: 15px;
+        background: #fff;
+        border-bottom: 1px solid #eef1f5;
+        box-shadow: 0 2px 12px rgba(31, 45, 61, 0.06);
+        margin-bottom: 16px;
         overflow: hidden;
     }
     .size{

@@ -3,18 +3,15 @@
  * @Date: 2023-02-27 14:56:02
  * @LastEditTime: 2023-02-27 15:08:02
  * @LastEditors: 0x3E5
- * @Description: 
+ * @Description:
  * @FilePath: \orderSYS\client\vue.config.js
  */
-const debug = process.env.NODE_ENV !== 'production'
-
 module.exports = {
   publicPath: '/', // 根域上下文目录
   outputDir: 'dist', // 构建输出目录
   assetsDir: 'assets', // 静态资源目录 (js, css, img, fonts)
   lintOnSave: false, // 是否开启eslint保存检测，有效值：ture | false | 'error'
   runtimeCompiler: true, // 运行时版本是否需要编译
-  transpileDependencies: [], // 默认babel-loader忽略mode_modules，这里可增加例外的依赖包名
   productionSourceMap: true, // 是否在构建生产包时生成 sourceMap 文件，false将提高构建速度
   parallel: require('os').cpus().length > 1, // 构建时开启多进程处理babel编译
   pluginOptions: { // 第三方插件配置
@@ -23,17 +20,24 @@ module.exports = {
   },
   devServer: {
     open: true,
-    host: 'localhost',
+    host: '0.0.0.0',
     port: 8080,
     https: false,
+    allowedHosts: 'all',
+    historyApiFallback: true,
     proxy: { // 配置跨域
       '/api': {
-        target: 'http://localhost:3000/api/',
+        target: 'http://localhost:3000',
         ws: true,
-        changOrigin: true,
-        pathRewrite: {
-          '^/api': ''
-        }
+        changeOrigin: true
+      },
+      '/goods': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/shop': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
       }
     }
   },

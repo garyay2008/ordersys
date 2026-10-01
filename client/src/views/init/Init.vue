@@ -3,11 +3,11 @@
     <div class="content">
       <el-card class="box-card">
         <div slot="header" class="clearfix">
-          <span class="init-title">系统初始化</span>
+          <span class="init-title">系統初始化</span>
         </div>
         <el-steps class="step" :active="active" finish-status="success">
-          <el-step title="管理员"></el-step>
-          <el-step title="店铺信息"></el-step>
+          <el-step title="管理員"></el-step>
+          <el-step title="店鋪信息"></el-step>
           <el-step title="完成"></el-step>
         </el-steps>
         <div class="views">

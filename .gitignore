@@ -102,3 +102,29 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Electron 桌面版打包產物與捆綁的 MongoDB 二進位
+dist_electron/
+mongodb/*
+!mongodb/.gitkeep
+
+# macOS 系統檔
+.DS_Store
+
+# 備份檔 / 原始資料 / 截圖（不進版本控制）
+*.bak
+*.bak_*
+*.archive
+backup_*.json
+full_backup_*.json
+full_backup_*.gz
+full_backup_*.zip
+menu_backup_*.json
+combo_backup_*.json
+orderSYS_backup_*.archive
+WhatsApp Image*.jpeg
+ISMMENU/
+ismreport/
+screenshots/
+logo/
+master_*_*/

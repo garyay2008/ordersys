@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken')
 const passport = require('passport')
 const gravatar = require('gravatar')
 const { secretKey } = require('../../config/config')
+const { requireAdmin } = require('../../middleware/auth')
 
 // $route POST api/users/init
 // @desc 初始化管理员用户，返回json数据
@@ -80,7 +81,7 @@ router.post('/login', async (req, res) => {
 // @access private
 router.get(
   '/authorization',
-  passport.authenticate('jwt', { session: false }),
+  passport.authenticate('jwt', { session: false }), requireAdmin,
   async (req, res) => {
     try {
       const user = await User.findOne({ _id: req.user.id }).exec()
@@ -105,7 +106,7 @@ router.get(
 // @access private
 router.post(
   '/chinfo',
-  passport.authenticate('jwt', { session: false }),
+  passport.authenticate('jwt', { session: false }), requireAdmin,
   async (req, res) => {
     let chUser = req.body
     try {

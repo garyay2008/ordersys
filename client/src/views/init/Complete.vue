@@ -3,8 +3,8 @@
     <el-row>
       <el-col :span="24">
         <p class="success">恭喜你！</p>
-        <p class="tips">已经完成系统初始化，开始使用吧！</p>
-        <router-link to="/login"><el-button class="submitBtn" type="primary">开始使用</el-button></router-link>
+        <p class="tips">已經完成系統初始化，開始使用吧！</p>
+        <router-link to="/login"><el-button class="submitBtn" type="primary">開始使用</el-button></router-link>
       </el-col>
     </el-row>
   </div>

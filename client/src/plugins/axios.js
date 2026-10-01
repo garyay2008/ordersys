@@ -2,20 +2,8 @@
 
 import Vue from 'vue'
 import axios from 'axios'
-import { Message, Loading } from 'element-ui'
+import { Message } from 'element-ui'
 import router from '../router/index'
-
-let loading
-function startLoading () {
-  loading = Loading.service({
-    lock: true,
-    text: '拼命加载中...',
-    background: 'rgba(0,0,0,0.7)'
-  })
-}
-function endLoading () {
-  loading.close()
-}
 
 // Full config:  https://github.com/axios/axios#request-config
 // axios.defaults.baseURL = process.env.baseURL || process.env.apiUrl || '';
@@ -30,17 +18,16 @@ const config = {
 
 const _axios = axios.create(config)
 
+const Plugin = {}
+
 _axios.interceptors.request.use(
   function (config) {
-    // Do something before request is sent
-    startLoading()
-    if (localStorage.orderTk) {
+    if (localStorage.orderTk && !(config.headers && config.headers.Authorization)) {
       config.headers.Authorization = localStorage.orderTk
     }
     return config
   },
   function (error) {
-    // Do something with request error
     return Promise.reject(error)
   }
 )
@@ -48,20 +35,23 @@ _axios.interceptors.request.use(
 // Add a response interceptor
 _axios.interceptors.response.use(
   function (response) {
-    // Do something with response data
-    endLoading()
     return response
   },
   function (error) {
-    // Do something with response error
-    endLoading()
+    if (!error.response) {
+      Message.error('網路錯誤，請稍後重試')
+      return Promise.reject(error)
+    }
     const { status } = error.response
     if (status === 401) {
-      Message.error('操作超时，请重新登录！')
+      Message.error('操作超時，請重新登錄！')
       localStorage.removeItem('orderTk')
-      router.push('/login')
+      // POS 頁面（/pos）不跳轉到管理後台登入
+      if (router.currentRoute.path.indexOf('/pos') !== 0) {
+        router.push('/login')
+      }
     } else {
-      Message.error(error.response.data)
+      Message.error(error.response.data || '請求失敗')
     }
     return Promise.reject(error)
   }

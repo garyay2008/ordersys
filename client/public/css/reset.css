@@ -30,6 +30,13 @@ footer, header, hgroup, menu, nav, section {
 }
 body {
 	line-height: 1;
+	font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'PingFang SC', 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Microsoft JhengHei', 'Arial', sans-serif;
+}
+*, *::before, *::after {
+	font-family: inherit;
+}
+.el-input__inner, .el-select .el-input__inner, .el-textarea__inner, .el-button, .el-dialog__title, .el-dialog__body, .el-table, .el-table th, .el-table td, .el-form-item__label, .el-radio, .el-checkbox, .el-tag, .el-dropdown-menu, .el-select-dropdown, .el-notification, .el-message, .el-card, .el-menu {
+	font-family: -apple-system, BlinkMacSystemFont, 'PingFang TC', 'PingFang SC', 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Microsoft JhengHei', 'Arial', sans-serif !important;
 }
 ol, ul {
 	list-style: none;
