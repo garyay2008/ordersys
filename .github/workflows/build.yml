@@ -3,6 +3,8 @@ name: Build Desktop (Windows + Linux)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
 
@@ -13,10 +15,10 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: --linux
+            target: '--linux'
             artifact: ordersys-linux
           - os: windows-latest
-            target: --win
+            target: '--win'
             artifact: ordersys-windows
     runs-on: ${{ matrix.os }}
     steps:
@@ -28,7 +30,7 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install backend deps（含 electron / electron-builder）
+      - name: Install backend deps (electron / electron-builder)
         run: npm install --legacy-peer-deps
 
       - name: Install client deps
