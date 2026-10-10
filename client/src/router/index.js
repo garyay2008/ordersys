@@ -60,6 +60,14 @@ const routes = [
     component: () => import('../views/admin/Login')
   },
   {
+    path: '/activate',
+    name: 'Activate',
+    meta: {
+      title: '授權啟用'
+    },
+    component: () => import('../views/activate/Index')
+  },
+  {
     path: '/admin',
     component: () => import('../views/admin/Index'),
     children: [
@@ -404,7 +412,7 @@ function setTitle (to) {
 router.beforeEach((to, from, next) => {
   setTitle(to)
   const isLogin = !!localStorage.getItem('orderTk')
-  if (to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/mpos') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue')) {
+  if (to.path === '/activate' || to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/mpos') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue')) {
     next()
   } else {
     isLogin ? next() : next('/login')

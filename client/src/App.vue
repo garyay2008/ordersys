@@ -35,6 +35,21 @@ export default {
         localStorage.removeItem('orderTk')
       }
     }
+    // 授權啟用流程：僅當伺服器開啟強制驗證（桌面版）且未授權時，導向啟用頁
+    // 顧客／自助／排隊／POS 等公開頁面不導向（與 axios 401 處理一致）
+    this.$axios.get('/api/license/status')
+      .then(res => {
+        const s = res.data || {}
+        const p = this.$router.currentRoute.path
+        const isPublicPage = p.indexOf('/pos') === 0 || p.indexOf('/mpos') === 0 ||
+          p.indexOf('/index/') === 0 || p.indexOf('/emenu/') === 0 ||
+          p.indexOf('/kiosk') === 0 || p.indexOf('/paykiosk') === 0 ||
+          p.indexOf('/queue') === 0
+        if (s.enforced && !s.valid && !isPublicPage && p !== '/activate') {
+          this.$router.replace('/activate')
+        }
+      })
+      .catch(() => {})
   }
 }
 </script>

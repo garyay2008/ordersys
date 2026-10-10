@@ -129,6 +129,9 @@ function startServer () {
   process.env.MACHINE_ID = ensureMachineId()
   process.env.PUBLIC_DIR = path.join(app.getPath('userData'), 'public')
   process.env.PORT = String(serverPort)
+  // 授權：桌面版強制驗證，授權碼寫入 userData/license.key（經啟用頁啟用）
+  process.env.LICENSE_FILE = path.join(app.getPath('userData'), 'license.key')
+  process.env.LICENSE_ENFORCE = '1'
 
   seedPublicDir()
 

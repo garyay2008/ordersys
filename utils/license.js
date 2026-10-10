@@ -88,15 +88,27 @@ function checkLicense (key, publicKey) {
   return parsed
 }
 
-// 讀取授權碼：優先 LICENSE_KEY 環境變數，其次專案根目錄 license.key
+// 授權碼檔案路徑：可經 LICENSE_FILE 覆寫（桌面版指向 userData/license.key）
+function licenseFilePath () {
+  return process.env.LICENSE_FILE || path.join(__dirname, '..', 'license.key')
+}
+
+// 讀取授權碼：優先 LICENSE_KEY 環境變數，其次授權碼檔案
 function readLicenseKey () {
   if (process.env.LICENSE_KEY) return String(process.env.LICENSE_KEY).trim()
-  const file = path.join(__dirname, '..', 'license.key')
   try {
-    return fs.readFileSync(file, 'utf8').trim()
+    return fs.readFileSync(licenseFilePath(), 'utf8').trim()
   } catch (e) {
     return ''
   }
+}
+
+// 儲存授權碼（啟用流程）：寫入授權碼檔案，供下次讀取驗證
+function saveLicenseKey (key) {
+  const file = licenseFilePath()
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, String(key).trim(), 'utf8')
+  return file
 }
 
 function maskKey (key) {
@@ -114,6 +126,7 @@ function getLicenseStatus () {
   return {
     valid: result.valid,
     reason: result.reason,
+    enforced: process.env.LICENSE_ENFORCE === '1',
     machineId: getMachineId(),
     maskedKey: key ? maskKey(key) : '',
     customer: p.customer || '',
@@ -131,6 +144,7 @@ module.exports = {
   parseLicense,
   checkLicense,
   readLicenseKey,
+  saveLicenseKey,
   getLicenseStatus,
   maskKey
 }

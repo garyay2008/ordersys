@@ -91,11 +91,13 @@ const license = require('./utils/license')
 app.get('/api/license/status', (req, res) => {
   res.json(license.getLicenseStatus())
 })
+app.use('/api/license', require('./routes/api/license'))
 
 // 授權強制驗證：設定 LICENSE_ENFORCE=1 時，無效/過期授權會擋下所有 /api 請求
 if (process.env.LICENSE_ENFORCE === '1') {
   app.use('/api', (req, res, next) => {
-    if (req.path === '/license/status') return next()
+    // 授權相關端點（狀態/機器碼/啟用）不受強制驗證攔截，讓客戶可自行啟用授權
+    if (req.path.indexOf('/license') === 0) return next()
     const status = license.getLicenseStatus()
     if (status.valid) return next()
     return res.status(402).json({ msg: '授權無效或已過期', code: status.reason })
