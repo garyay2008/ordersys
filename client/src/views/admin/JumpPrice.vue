@@ -3,7 +3,7 @@
     <el-card>
       <div slot="header" class="clearfix">
         <span>貨價跳價錢設定</span>
-        <span class="tip">全局規則：依星期／假日＋堂食／外賣＋生效時間＋結束時間，把貨品價跳到指定價格（價格1～價格10）</span>
+        <span class="tip">全局規則：依星期／假日＋堂食／外賣枱／外賣＋生效時間＋結束時間，把貨品價跳到指定價格（價格1～價格10）</span>
       </div>
       <el-row>
         <el-button type="primary" size="small" @click="addRule">+ 添加跳價規則</el-button>
@@ -41,11 +41,12 @@
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column align="center" width="130" label="堂食／外賣">
+            <el-table-column align="center" width="130" label="堂食／外賣枱／外賣">
               <template slot-scope="scope">
                 <el-select v-model="scope.row.mode" size="small" style="width: 110px;">
                   <el-option label="全部" value="all"></el-option>
                   <el-option label="堂食" value="堂食"></el-option>
+                  <el-option label="外賣枱" value="外賣枱"></el-option>
                   <el-option label="外賣" value="外賣"></el-option>
                 </el-select>
               </template>

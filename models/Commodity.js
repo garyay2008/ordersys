@@ -98,15 +98,20 @@ const CommoditySchema = new Schema({
     type: Boolean,
     default: false
   },
-  // 跟餐組引用（AddonGroup._id）：貨品做撞餐時，點擊此貨品即自動帶出這些跟餐組
-  addonGroupIds: {
-    type: [String],
-    default: []
-  },
   // 跟餐組別（BundleGroup._id）：撞餐規則的飲品側記認，'' = 不跟餐
   bundleGroupId: {
     type: String,
     default: ''
+  },
+  // 主菜組別（MainGroup._id）：撞餐規則的主食側記認，'' = 非主食
+  mainGroupId: {
+    type: String,
+    default: ''
+  },
+  // 非營業商品：不計入營業額（如賣紙箱/押金等），日結報表歸入「非營業項目金額」
+  nonBusiness: {
+    type: Boolean,
+    default: false
   }
 })
 

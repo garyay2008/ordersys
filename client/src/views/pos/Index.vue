@@ -8,6 +8,14 @@
         <div v-if="failoverNotice.deskNo || failoverNotice.orderNo" class="failover-sub">枱號 {{ failoverNotice.deskNo || '—' }}<span v-if="failoverNotice.orderNo"> · 單號 {{ failoverNotice.orderNo }}</span></div>
       </div>
     </transition>
+    <!-- 打印機未送出提示（缺紙/離線/開蓋，未送廚） -->
+    <transition name="failover">
+      <div v-if="blockedNotice.show" class="failover-banner blocked-banner">
+        <div class="failover-title"><i class="el-icon-warning"></i> 打印機未送出</div>
+        <div class="failover-main">「{{ blockedNotice.station }}」{{ blockedNotice.reason }}</div>
+        <div v-if="blockedNotice.deskNo || blockedNotice.orderNo" class="failover-sub">枱號 {{ blockedNotice.deskNo || '—' }}<span v-if="blockedNotice.orderNo"> · 單號 {{ blockedNotice.orderNo }}</span></div>
+      </div>
+    </transition>
     <div id="pos" :style="posScaleStyle">
     <!-- 登入視圖 -->
     <div v-if="!loggedIn" class="login-view">
@@ -116,7 +124,8 @@
           <el-button-group size="small" style="margin-left: 8px;">
             <el-button :type="tableListZone === 'all' ? 'primary' : ''" @click="tableListZone = 'all'">全部</el-button>
             <el-button :type="tableListZone === '堂食' ? 'primary' : ''" @click="tableListZone = '堂食'">堂食</el-button>
-            <el-button :type="tableListZone === '外賣' ? 'warning' : ''" @click="tableListZone = '外賣'">外賣</el-button>
+            <el-button :type="tableListZone === '外賣枱' ? 'warning' : ''" @click="tableListZone = '外賣枱'">外賣枱</el-button>
+            <el-button :type="tableListZone === '外賣' ? 'danger' : ''" @click="tableListZone = '外賣'">外賣</el-button>
           </el-button-group>
           <el-input v-model="tableListKeyword" size="small" readonly placeholder="輸入枱號" prefix-icon="el-icon-search" style="width: 140px;" @click.native="openListKeypad('keyword')"></el-input>
           <el-input v-model="tableListOrderNo" size="small" readonly placeholder="輸入單號" style="width: 140px;" @click.native="openListKeypad('orderNo')"></el-input>
@@ -247,26 +256,27 @@
 
     <!-- 點餐視圖 -->
     <template v-if="view === 'order'">
+      <div v-if="pluInput" class="hw-plu-hint"><span class="hw-plu-label">貨品編號</span><b class="hw-plu-value">{{ pluInput }}</b><span class="hw-plu-help">Enter/＋ 加入 · － 退格 · . 清除</span></div>
       <!-- 側欄式（參考圖） -->
       <div v-if="orderLayout === 'sidebar'" class="order-layout" ref="orderLayout" :class="{ free: freeMode }" :style="themeVars">
             <div class="order-ticket" ref="orderTicket" :style="[ticketWidthStyle, panelStyle('ticket'), panelColorStyle('ticket')]">
               <div class="ot-head" :style="panelColorStyle('ticketHead')">
                 <div class="ot-grid">
                   <el-button class="head-back ot-back" @mousedown.stop @click="backToBoard"><i class="el-icon-arrow-left"></i> 返回枱號</el-button>
-                  <el-button class="head-back ot-cancel-item" @mousedown.stop @click="cancelSelectedItem"><i class="el-icon-delete"></i> 項目取消</el-button>
+                  <el-button class="head-back ot-cancel-item" @mousedown.stop @click="cancelItemFromBtn"><i class="el-icon-delete"></i> 單項取消</el-button>
                   <div class="ot-cell ot-mode-cell">
                     <div class="ot-cap">模式</div>
-                    <div class="ot-big-num ot-mode-label" :class="{ 'ot-takeaway-label': !isDineIn }">{{ isDineIn ? '堂食' : '外賣' }}</div>
+                    <div class="ot-big-num ot-mode-label" :class="{ 'ot-takeaway-label': !isDineIn }">{{ modeLabel }}</div>
                   </div>
-                  <el-button class="head-back ot-item-detail" @mousedown.stop @click="showItemDetail"><i class="el-icon-document"></i> 項目明細</el-button>
+                  <el-button class="head-back ot-item-detail" @mousedown.stop @click="toggleShowDetail"><i class="el-icon-document"></i> 詳細</el-button>
                   <div class="ot-cell ot-orderno-cell">
                     <div class="ot-cap">單據編號</div>
-                    <div class="ot-big-num ot-order-no">{{ (currentOrder && currentOrder.orderNo) || '—' }}</div>
+                    <div class="ot-big-num ot-order-no">{{ orderNoDisplay }}</div>
                   </div>
                   <div class="ot-cell ot-table-cell" @mousedown.stop>
                     <div class="ot-cap">枱號</div>
                     <div v-if="isDineIn" class="ot-big-num" @click="openTableKeypad">{{ selectedTableLabel }}<i class="el-icon-edit-outline ot-edit-icon"></i></div>
-                    <div v-else class="ot-big-num ot-takeaway-label">外賣</div>
+                    <div v-else class="ot-big-num ot-takeaway-label">{{ takeawayNoDisplay }}</div>
                   </div>
                   <div class="ot-cell ot-pax-cell" @mousedown.stop>
                     <div class="ot-cap">人數</div>
@@ -378,16 +388,17 @@
                       </div>
                     </div>
                     <div v-else-if="cell.type === 'item' && cell.item._itemType === 'combo'" :key="cell.k" class="food-wrap">
-                      <div class="food-btn combo-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" @click="openComboPicker(cell.item)">
+                      <div class="food-btn combo-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" @click="foodClick(cell.item)" @mousedown="startFoodPress(cell.item, $event)" @mouseup="cancelFoodPress" @mouseleave="cancelFoodPress" @touchstart="startFoodPress(cell.item, $event)" @touchend="cancelFoodPress" @touchmove="cancelFoodPress">
                         <img v-if="cell.item.img && showFoodImages" :src="cell.item.img" class="food-img combo-img">
                         <div class="food-text">
                           <div class="food-name">{{ cell.item.name }}<span v-if="cell.item.soldOut" class="food-soldout-tag">售罄</span></div>
                           <div class="food-price" v-if="foodBtnSettings.showPrice !== false">${{ cell.item.price }}</div>
                         </div>
+                        <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                       </div>
                     </div>
                     <div v-else-if="cell.type === 'item'" :key="cell.k" class="food-wrap">
-                      <div class="food-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" :style="foodBtnStyle()" @click="addFood(cell.item)">
+                      <div class="food-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" :style="foodBtnStyle()" @click="foodClick(cell.item)" @mousedown="startFoodPress(cell.item, $event)" @mouseup="cancelFoodPress" @mouseleave="cancelFoodPress" @touchstart="startFoodPress(cell.item, $event)" @touchend="cancelFoodPress" @touchmove="cancelFoodPress">
                         <img v-if="cell.item.img && showFoodImages" :src="cell.item.img" class="food-img">
                         <div class="food-text">
                           <div class="food-plu" v-if="foodBtnSettings.showPlu !== false && !showFoodImages && cell.item.plu">{{ cell.item.plu }}</div>
@@ -395,6 +406,7 @@
                           <div class="food-price" v-if="foodBtnSettings.showPrice !== false && !cell.item._isModCategory">${{ cell.item.price }}</div>
                           <div class="food-stock" v-if="cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
                         </div>
+                        <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                       </div>
                     </div>
                     <div v-else-if="cell.type === 'prev'" :key="cell.k" class="food-wrap">
@@ -439,20 +451,20 @@
         <div class="top-bar">
           <div class="ot-grid classic-grid">
             <el-button class="head-back ot-back" @click="backToBoard"><i class="el-icon-arrow-left"></i> 返回枱號</el-button>
-            <el-button class="head-back ot-cancel-item" @click="cancelSelectedItem"><i class="el-icon-delete"></i> 項目取消</el-button>
+            <el-button class="head-back ot-cancel-item" @click="cancelItemFromBtn"><i class="el-icon-delete"></i> 單項取消</el-button>
             <div class="ot-cell ot-mode-cell">
               <div class="ot-cap">模式</div>
-              <div class="ot-big-num ot-mode-label" :class="{ 'ot-takeaway-label': !isDineIn }">{{ isDineIn ? '堂食' : '外賣' }}</div>
+              <div class="ot-big-num ot-mode-label" :class="{ 'ot-takeaway-label': !isDineIn }">{{ modeLabel }}</div>
             </div>
-            <el-button class="head-back ot-item-detail" @click="showItemDetail"><i class="el-icon-document"></i> 項目明細</el-button>
+            <el-button class="head-back ot-item-detail" @click="toggleShowDetail"><i class="el-icon-document"></i> 詳細</el-button>
             <div class="ot-cell ot-orderno-cell">
               <div class="ot-cap">單據編號</div>
-              <div class="ot-big-num ot-order-no">{{ (currentOrder && currentOrder.orderNo) || '—' }}</div>
+              <div class="ot-big-num ot-order-no">{{ orderNoDisplay }}</div>
             </div>
             <div class="ot-cell ot-table-cell">
               <div class="ot-cap">枱號</div>
               <div v-if="isDineIn" class="ot-big-num" @click="openTableKeypad">{{ selectedTableLabel }}<i class="el-icon-edit-outline ot-edit-icon"></i></div>
-              <div v-else class="ot-big-num ot-takeaway-label">外賣</div>
+              <div v-else class="ot-big-num ot-takeaway-label">{{ takeawayNoDisplay }}</div>
             </div>
             <div class="ot-cell ot-pax-cell">
               <div class="ot-cap">人數</div>
@@ -552,16 +564,17 @@
                   </div>
                 </div>
                 <div v-else-if="cell.type === 'item' && cell.item._itemType === 'combo'" :key="cell.k" class="food-wrap">
-                  <div class="food-btn combo-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" @click="openComboPicker(cell.item)">
+                  <div class="food-btn combo-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" @click="foodClick(cell.item)" @mousedown="startFoodPress(cell.item, $event)" @mouseup="cancelFoodPress" @mouseleave="cancelFoodPress" @touchstart="startFoodPress(cell.item, $event)" @touchend="cancelFoodPress" @touchmove="cancelFoodPress">
                     <img v-if="cell.item.img && showFoodImages" :src="cell.item.img" class="food-img combo-img">
                     <div class="food-text">
                       <div class="food-name">{{ cell.item.name }}<span v-if="cell.item.soldOut" class="food-soldout-tag">售罄</span></div>
                       <div class="food-price" v-if="foodBtnSettings.showPrice !== false">${{ cell.item.price }}</div>
                     </div>
+                    <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                   </div>
                 </div>
                 <div v-else-if="cell.type === 'item'" :key="cell.k" class="food-wrap">
-                  <div class="food-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" :style="foodBtnStyle()" @click="addFood(cell.item)">
+                  <div class="food-btn" :class="{ 'food-soldout': cell.item.soldOut, 'food-no-img': !showFoodImages }" :style="foodBtnStyle()" @click="foodClick(cell.item)" @mousedown="startFoodPress(cell.item, $event)" @mouseup="cancelFoodPress" @mouseleave="cancelFoodPress" @touchstart="startFoodPress(cell.item, $event)" @touchend="cancelFoodPress" @touchmove="cancelFoodPress">
                     <img v-if="cell.item.img && showFoodImages" :src="cell.item.img" class="food-img">
                     <div class="food-text">
                       <div class="food-plu" v-if="foodBtnSettings.showPlu !== false && !showFoodImages && cell.item.plu">{{ cell.item.plu }}</div>
@@ -569,6 +582,7 @@
                       <div class="food-price" v-if="foodBtnSettings.showPrice !== false && !cell.item._isModCategory">${{ cell.item.price }}</div>
                       <div class="food-stock" v-if="cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
                     </div>
+                    <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                   </div>
                 </div>
                 <div v-else-if="cell.type === 'prev'" :key="cell.k" class="food-wrap">
@@ -655,8 +669,8 @@
       <number-pad :value="pluDialog.value" @input="pluDialog.value = $event" @confirm="confirmPlu"></number-pad>
       <div class="plu-fn-keys">
         <div class="plu-fn-key plu-fn-add" @click="confirmPlu">加入</div>
-        <div class="plu-fn-key plu-fn-send" @click="sendOrder">送單</div>
-        <div class="plu-fn-key plu-fn-serving" @click="serveTicket">上菜紙</div>
+        <div class="plu-fn-key plu-fn-send" @click="directPayActive ? openPay() : sendOrder()">送單</div>
+        <div class="plu-fn-key plu-fn-serving" @click="directPayActive ? openPay() : serveTicket()">上菜紙</div>
       </div>
       <div class="plu-fn-exit" @click="pluDialog.show = false">退出</div>
     </el-drawer>
@@ -715,6 +729,14 @@
         <div class="ctx-menu-item" @click="ctxEnterTable"><i class="el-icon-s-home"></i> 進入點餐</div>
         <div v-if="hasOrder(tableContextMenu.deskNo)" class="ctx-menu-item ctx-danger" @click="ctxForceUnlock"><i class="el-icon-unlock"></i> 強制解鎖（清除訂單）</div>
         <div v-if="boardStatus(tableContextMenu.deskNo) === '空枱'" class="ctx-menu-item ctx-disabled"><i class="el-icon-lock"></i> 已是空枱</div>
+      </div>
+    </transition>
+
+    <!-- 長按貨品/改碼/套餐 沽清選單 -->
+    <transition name="el-zoom-in-top">
+      <div v-if="foodSoldOutMenu.show" class="table-context-menu food-soldout-menu" :style="{ left: foodSoldOutMenu.x + 'px', top: foodSoldOutMenu.y + 'px' }" v-clickoutside="closeFoodSoldOutMenu">
+        <div v-if="foodSoldOutMenu.item && !foodSoldOutMenu.item.soldOut" class="ctx-menu-item ctx-danger" @click="doFoodSoldOut(foodSoldOutMenu.item, true)"><i class="el-icon-remove-outline"></i> 沽清</div>
+        <div v-else-if="foodSoldOutMenu.item" class="ctx-menu-item" @click="doFoodSoldOut(foodSoldOutMenu.item, false)"><i class="el-icon-refresh-left"></i> 重售</div>
       </div>
     </transition>
 
@@ -837,6 +859,7 @@ const BUTTON_META = {
   soldout: { label: '沽清設定', funcCode: '16', dineIn: false, type: '' },
   refund: { label: '反結帳', funcCode: '17', dineIn: false, type: 'danger' },
   report: { label: '報表', funcCode: '18', dineIn: false, type: '' },
+  dayReport: { label: '每日結算', funcCode: '56', dineIn: false, type: '' },
   manager: { label: '經理功能', funcCode: '19', dineIn: false, type: '' },
   openDrawer: { label: '開銀櫃', funcCode: '53', dineIn: false, type: '' },
   addTable: { label: '加枱', funcCode: '20', dineIn: false, type: '' },
@@ -864,8 +887,9 @@ const BUTTON_META = {
 }
 const SIDEBAR_META = {
   grid: { label: '枱號圖', funcCode: '23' },
-  takeaway: { label: '外賣', funcCode: '24' },
+  takeaway: { label: '外賣枱', funcCode: '24' },
   dineIn: { label: '堂食', funcCode: '25' },
+  delivery: { label: '外賣', funcCode: '57' },
   list: { label: '查看單據', funcCode: '26' },
   search: { label: '搜尋編號', funcCode: '27' },
   history: { label: '往日單據', funcCode: '28' },
@@ -980,10 +1004,13 @@ export default {
       boardGap: 10,
       cardDisplay: { seats: { show: true, fontSize: 12, position: 'top-left' }, dot: { show: true, fontSize: 9, position: 'top-right' }, tableNo: { show: true, fontSize: 42, position: 'center' }, amount: { show: true, fontSize: 17, position: 'below-no' }, status: { show: true, fontSize: 12, position: 'below-amount' }, duration: { show: true, fontSize: 11, position: 'bottom' } },
       modCodeList: [],
+      modCodeListAll: [],
       modCodeCategories: [],
       unfinishedOrders: [],
       settledTodayOrders: [],
       viewingSettledOrder: null,
+      viewingFloatingOrder: null,
+      pendingOrderNo: null,
       unsettleAuth: { show: false, no: '', password: '', orderNo: '', loading: false, order: null },
       itemDialog: { show: false, index: null, contentIndex: null, mods: [], customMod: '' },
       modCatFoodDialog: { show: false, name: '', items: [], selected: [] },
@@ -991,7 +1018,7 @@ export default {
       itemDiscountDialog: { show: false, pct: 0, amount: 0, free: false },
       discountOptions: [],
       pendingItemDiscount: null,
-      payDialog: { show: false, method: '現金', cashStr: '', change: 0, invoiceNo: '' },
+      payDialog: { show: false, method: '現金', cashStr: '', change: 0, invoiceNo: '', tip: 0 },
       tableDialog: { show: false, mode: 'merge', title: '', fromTable: null, toTable: null, padValue: '' },
       splitMoves: {},
       splitLeftSel: [],
@@ -1013,7 +1040,7 @@ export default {
       holdList: [],
       refundDialog: { show: false, activeTab: 'void', finished: [] },
       noPermDialog: { show: false, name: '', requiredLevel: 1 },
-      reportDialog: { show: false, type: 'cashier', scope: 'all', dateRange: [], slot: 'all', result: null, selecting: null, dateMode: 'today', printing: false },
+      reportDialog: { show: false, type: 'cashier', scope: 'all', dateRange: [], slot: 'all', result: null, selecting: null, dateMode: 'today', mode: 'entry', printing: false, department: 'all', category: 'all', pluFrom: '', pluTo: '', detail: 'detail' },
       posSlots: [],
       posFontFamily: '',
       posFontUrl: '',
@@ -1022,14 +1049,17 @@ export default {
       shopIntro: '',
       batchPrintDialog: { show: false },
       reportTypes: [
-        { id: 'business', label: '營業報表', icon: '📊', scope: false },
-        { id: 'department', label: '分區營業報表', icon: '🏬', scope: false },
+        { id: 'dailyClose', label: '日結清機報表', icon: '🧾', scope: false },
+        { id: 'monthly', label: '每月營業報表', icon: '📅', scope: false },
+        { id: 'sales', label: '銷貨報表', icon: '📦', scope: false },
+        { id: 'discount', label: '全日折扣報表', icon: '🏷️', scope: false },
+        { id: 'slotReport', label: '分市報表', icon: '🕒', scope: false },
+        { id: 'business', label: '營業報表', icon: '📊', scope: false, hidden: true },
+        { id: 'department', label: '分區營業報表', icon: '🏬', scope: false, hidden: true },
         { id: 'departmentRevenue', label: '部門收入報表', icon: '🍽️', scope: false },
         { id: 'cashier', label: '收銀員報表', icon: '💰', personal: true },
         { id: 'payment', label: '付款報表', icon: '💳', personal: true },
-        { id: 'cancelPayment', label: '取消付款報表', icon: '❌', personal: true },
-        { id: 'itemCancel', label: '項目取消報表', icon: '🗑️', personal: true },
-        { id: 'orderCancel', label: '全單取消報表', icon: '🚫', personal: true },
+        { id: 'cancel', label: '取消報表', icon: '❌', personal: true },
         { id: 'printRecord', label: '印單紀錄報表', icon: '🖨️', personal: true },
         { id: 'mergeTable', label: '合併枱報表', icon: '🔗', personal: false },
         { id: 'itemTransfer', label: '項目轉移報表', icon: '🔄', personal: false },
@@ -1040,6 +1070,9 @@ export default {
       shareTableEnabled: false,
       shareTablePanel: { show: false, deskNo: 0, subTables: [] },
       tableContextMenu: { show: false, x: 0, y: 0, deskNo: '' },
+      foodSoldOutMenu: { show: false, x: 0, y: 0, item: null },
+      foodPressTimer: null,
+      foodPressed: false,
       releaseTableMode: false,
       copyOrderMode: false,
       copyOrderSource: null,
@@ -1053,9 +1086,13 @@ export default {
       managerDialog: { show: false, no: '', password: '' },
       failoverNotice: { show: false, from: '', to: '', deskNo: '', orderNo: '' },
       failoverTimer: null,
+      blockedNotice: { show: false, station: '', reason: '', deskNo: '', orderNo: '' },
+      blockedTimer: null,
       isManager: false,
       managerName: '',
       pluInput: '',
+      scanBuffer: '',
+      scanLastTs: 0,
       changePayDialog: { show: false, orderId: '', orderNo: '', totalPrice: 0, payMethod: '現金' },
       deptSplitDialog: { show: false, title: '', source: '', orderNo: '', combos: [] },
       departments: [],
@@ -1081,6 +1118,7 @@ export default {
       bundleEnabled: false,
       bundleMode: 'auto',
       bundleRule: 'bestPrice',
+      directPayMode: false,
       bundleApplied: true,
       drag: null,
       boardMode: 'grid',
@@ -1113,6 +1151,28 @@ export default {
     }
   },
   computed: {
+    // 搭枱子枱對照表（主枱 physicalNo → 子枱 no 陣列），供 physicalNos() O(1) 查表
+    physicalNoMap () {
+      const map = {}
+      if (!this.shareTableEnabled) return map
+      for (const t of this.tables) {
+        if (!t.shareSuffix) continue
+        const key = String(t.physicalNo)
+        if (!map[key]) map[key] = []
+        map[key].push(String(t.no))
+      }
+      return map
+    },
+    // 未結訂單對照表（deskNo → 訂單陣列，保持 unfinishedOrders 順序）
+    orderMap () {
+      const map = {}
+      for (const o of this.unfinishedOrders) {
+        const k = String(o.deskNo)
+        if (!map[k]) map[k] = []
+        map[k].push(o)
+      }
+      return map
+    },
     loginActiveValue () {
       return this.loginActive === 'no' ? this.loginNo : this.loginPassword
     },
@@ -1151,9 +1211,9 @@ export default {
       return this.managerMenu.filter(m => m.visible !== false).map(m => {
         const id = FUNC_CODE_TO_BTN_ID[m.funcCode] || ''
         if (id && BUTTON_META[id]) {
-          return { id, label: BUTTON_META[id].label, funcCode: m.funcCode }
+          return { id, label: BUTTON_META[id].label, funcCode: m.funcCode, type: BUTTON_META[id].type || '' }
         }
-        return { id: m.funcCode, label: '[' + m.funcCode + ']', funcCode: m.funcCode }
+        return { id: m.funcCode, label: '[' + m.funcCode + ']', funcCode: m.funcCode, type: '' }
       })
     },
     sidebarButtons () {
@@ -1167,12 +1227,21 @@ export default {
         const meta = SIDEBAR_META[c.id] || {}
         const actMeta = SIDEBAR_META[actionId] || BUTTON_META[actionId] || meta
         const label = actMeta.label || meta.label || c.id
-        const icon = { grid: 'el-icon-menu', takeaway: 'el-icon-shopping-bag-2', dineIn: 'el-icon-office-building', list: 'el-icon-tickets', search: 'el-icon-search', history: 'el-icon-time', refresh: 'el-icon-refresh', addTable: 'el-icon-plus', batchPrint: 'el-icon-printer', report: 'el-icon-data-analysis', settings: 'el-icon-setting' }
+        const icon = { grid: 'el-icon-menu', takeaway: 'el-icon-shopping-bag-2', dineIn: 'el-icon-office-building', delivery: 'el-icon-truck', list: 'el-icon-tickets', search: 'el-icon-search', history: 'el-icon-time', refresh: 'el-icon-refresh', addTable: 'el-icon-plus', batchPrint: 'el-icon-printer', report: 'el-icon-data-analysis', settings: 'el-icon-setting' }
         return { slotId: c.id, actionId, funcCode: fc, label, icon: icon[actionId] || 'el-icon-more', visible: c.visible !== false, bgColor: c.bgColor || '', textColor: c.textColor || '' }
       })
     },
     isDineIn () { return this.selectedZone === '堂食' },
     isTakeaway () { return !this.isDineIn },
+    isDelivery () { return this.selectedZone === '外賣' },
+    directPayActive () { return this.directPayMode && this.isDelivery },
+    modeLabel () { return this.isDineIn ? '堂食' : (this.isDelivery ? '外賣' : '外賣枱') },
+    // 外賣叫號：區域 + 號碼同一行（如「外賣 001」），否則退回模式標籤
+    takeawayNoDisplay () {
+      if (this.isDineIn) return this.selectedTableLabel
+      const no = (this.currentOrder && this.currentOrder.takeawayNo) || ''
+      return no ? `${this.modeLabel} ${no}` : this.modeLabel
+    },
     categoryById () {
       const m = {}
       this.goods.forEach(g => { m[String(g._id)] = g })
@@ -1314,7 +1383,7 @@ export default {
       }
       return list
     },
-    cart () { return this.carts[this.isDineIn ? this.selectedTable : 'takeaway'] || [] },
+    cart () { return this.carts[this.cartKey] || [] },
     cancelEditSentItems () {
       return this.cart
         .map((item, index) => ({ ...item, index }))
@@ -1334,14 +1403,15 @@ export default {
       const t = this.tables.find(x => String(x.no) === String(this.selectedTable))
       return t ? this.tableLabel(t) : this.selectedTable
     },
-    cartKey () { return this.isDineIn ? this.selectedTable : 'takeaway' },
+    cartKey () { return this.isDineIn ? this.selectedTable : (this.isDelivery ? 'delivery' : 'takeaway') },
     matchingRuleCombos () {
       const rules = (this.matchingRules || []).filter(r => r.enabled !== false)
       if (!rules.length) return []
       const flat = []
       ;(this.goods || []).forEach(cat => {
         ;(cat.foods || []).forEach(f => {
-          if (f._isCombo || f._isModCode || f._isModCategory) return
+          if (f._isModCode || f._isModCategory) return
+          if ((f._isCombo || f.isCombo) && !f.mainGroupId) return
           flat.push(f)
         })
       })
@@ -1350,26 +1420,24 @@ export default {
       ;(this.bundleGroups || []).forEach(g => { groupPriceMap[String(g._id)] = Number(g.price) || 0 })
       const out = []
       rules.forEach(r => {
-        const triggerIds = (r.triggerCategoryIds || []).map(String)
-        const addonIds = (r.addonCategoryIds || []).map(String)
         const groupIds = (r.bundleGroupIds || []).map(String)
-        const addonPrice = Number(r.addonPrice !== undefined ? r.addonPrice : r.combinedPrice) || 0
+        const addonPrice = Number(r.addonPrice) || 0
         // 跟餐價模型：主食保留原價，跟餐改收特別跟餐價。
         // bundle 數學上 combo.price=0，主食 upgradePrice=原價、跟餐 upgradePrice=跟餐價，
         // 所以撞餐後總價 = 主食原價 + 跟餐價。
         const triggerItems = flat
-          .filter(f => triggerIds.length ? triggerIds.includes(String(f.categoryId || '')) : true)
+          .filter(f => this.matchingRuleTriggerMatches(f, r))
           .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: Number(f.price) || 0 }))
         let addonItems
         if (groupIds.length) {
-          // 新：撞跟餐組別，跟餐價取自組別
+          // 撞跟餐組別，跟餐價取自組別
           addonItems = flat
             .filter(f => f.bundleGroupId && groupIds.includes(String(f.bundleGroupId)))
             .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: groupPriceMap[String(f.bundleGroupId)] || 0 }))
         } else {
-          // 舊：撞跟餐分類
+          // 未選跟餐組別：任意跟餐，跟餐價用 addonPrice（套餐/改碼不參與跟餐側）
           addonItems = flat
-            .filter(f => addonIds.length ? addonIds.includes(String(f.categoryId || '')) : true)
+            .filter(f => !f._isCombo && !f.isCombo)
             .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: addonPrice }))
         }
         if (!triggerItems.length || !addonItems.length) return
@@ -1591,6 +1659,16 @@ export default {
         if (r.status !== '已付款') rows.push(r)
         settled.forEach(o => rows.push(this.buildTableRow(r.table, o, '已付款', o.totalPrice || 0)))
       })
+      // 外賣枱/外賣浮動單（無實體枱）：未結 + 今日已付款各一列
+      const floatingZones = ['外賣枱', '外賣']
+      const isFloating = o => floatingZones.indexOf(o.zone) >= 0 && !this.tables.some(t => String(t.no) === String(o.deskNo))
+      this.unfinishedOrders.filter(isFloating).forEach(o => {
+        if (!o.order || !o.order.length) return
+        rows.push(this.buildFloatingRow(o, o.relisted ? '退單' : (o.printed ? '已印單' : '用餐中'), o.totalPrice || 0))
+      })
+      this.settledTodayOrders.filter(isFloating).forEach(o => {
+        rows.push(this.buildFloatingRow(o, '已付款', o.totalPrice || 0))
+      })
       rows = rows.filter(r => (this.tableListStatus === 'all' || (this.tableListStatus === 'free' && r.status === '空枱') || (this.tableListStatus === 'qr' && r.status === '使用中') || (this.tableListStatus === 'active' && r.status === '用餐中') || (this.tableListStatus === 'printed' && r.status === '已印單') || (this.tableListStatus === 'settled' && r.status === '已付款')) && (this.tableListZone === 'all' || r.zone === this.tableListZone))
       const kw = this.tableListKeyword.trim().toLowerCase()
       if (kw) rows = rows.filter(r => r.label.toString().toLowerCase().indexOf(kw) >= 0)
@@ -1638,11 +1716,20 @@ export default {
       return m
     },
     currentOrder () {
-      if (!this.isDineIn) return null
-      if (this.viewingSettledOrder && String(this.viewingSettledOrder.deskNo) === String(this.selectedTable)) {
-        return this.viewingSettledOrder
+      if (this.viewingSettledOrder) {
+        if (this.isDineIn && String(this.viewingSettledOrder.deskNo) === String(this.selectedTable)) {
+          return this.viewingSettledOrder
+        }
+        if (!this.isDineIn && this.viewingSettledOrder.zone === this.selectedZone) {
+          return this.viewingSettledOrder
+        }
       }
+      if (!this.isDineIn) return this.viewingFloatingOrder || null
       return this.unfinishedOrders.find(o => String(o.deskNo) === String(this.selectedTable)) || null
+    },
+    orderNoDisplay () {
+      if (this.currentOrder && this.currentOrder.orderNo) return this.currentOrder.orderNo
+      return this.pendingOrderNo || '—'
     },
     viewingSettled () {
       return !!this.viewingSettledOrder
@@ -1690,6 +1777,7 @@ export default {
         const y = Number(entry.y) || 0
         return { id, colorFrom: entry.colorFrom || entry.color || '', colorTo: entry.colorTo || '', textColor: entry.textColor || '', funcCode: entry.funcCode || '', visible: vis, fontSize: fs, width: w, height: h, x, y, label: entry.label || meta.label, type: meta.type, dineIn: meta.dineIn }
       }).filter(b => b && b.visible && (!b.dineIn || this.isDineIn) && MANAGER_FUNC_IDS.indexOf(b.id) < 0)
+        .filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i)
     },
     buttonRows () {
       const rows = []
@@ -1912,6 +2000,8 @@ export default {
       const idx = this.itemDialog && this.itemDialog.index
       const ci = this.itemDialog && this.itemDialog.contentIndex
       const forceCat = this.itemDialog && this.itemDialog.category
+      const catMap = {}
+      this.modCodeCategories.forEach(c => { catMap[c.name] = c })
       // 從「改碼類別」按鈕進入：只顯示該類別改碼（多選），無需依賴品項已設定的 modCategories
       if (forceCat) {
         this.modCodeList.filter(m => m.category === forceCat).forEach(m => {
@@ -1919,7 +2009,7 @@ export default {
           if (!groups[c]) groups[c] = []
           groups[c].push(m)
         })
-        return Object.keys(groups).map(k => ({ name: k, items: groups[k] }))
+        return Object.keys(groups).map(k => ({ name: k, items: groups[k], minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
       }
       // 依目前編輯品項的改碼類別過濾；商品未設定改碼則不顯示任何改碼群組
       const item = idx != null ? this.cart[idx] : null
@@ -1939,7 +2029,7 @@ export default {
         if (!groups[c]) groups[c] = []
         groups[c].push(m)
       })
-      return Object.keys(groups).map(k => ({ name: k, items: groups[k] }))
+      return Object.keys(groups).map(k => ({ name: k, items: groups[k], minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
     }
   },
   watch: {
@@ -1993,6 +2083,15 @@ export default {
     }
   },
   methods: {
+    // 撞餐規則主食側判定：主菜組別(triggerGroupIds)，空=任意主食
+    matchingRuleTriggerMatches (f, r) {
+      const trigGroups = (r.triggerGroupIds || []).map(String)
+      if (trigGroups.length) {
+        const gid = f && f.mainGroupId ? String(f.mainGroupId) : ''
+        return !!gid && trigGroups.includes(gid)
+      }
+      return true
+    },
     // 已送單跟餐 + 未送單主食：主食後加也能撞餐（跟餐已出，方案B：主食永不變，跟餐改跟餐價）
     computeSentAddonBundles (unsent, baseBundledIndexes) {
       const result = { bundles: [], bundledIndexes: [], totalSavings: 0 }
@@ -2016,17 +2115,15 @@ export default {
       const bundles = []
       let totalSavings = 0
       rules.forEach(r => {
-        const triggerIds = (r.triggerCategoryIds || []).map(String)
-        const addonIds = (r.addonCategoryIds || []).map(String)
         const groupIds = (r.bundleGroupIds || []).map(String)
-        const addonPrice = Number(r.addonPrice !== undefined ? r.addonPrice : r.combinedPrice) || 0
+        const addonPrice = Number(r.addonPrice) || 0
 
         // 本規則可用的主食單位（依數量展開）
         const triggerUnits = []
         unsent.forEach((f, idx) => {
           const rem = triggerRemaining[idx] || 0
           if (!rem) return
-          if (triggerIds.length && !triggerIds.includes(String(f.categoryId || ''))) return
+          if (!this.matchingRuleTriggerMatches(f, r)) return
           for (let k = 0; k < rem; k++) triggerUnits.push(idx)
         })
         // 本規則可用的飲品單位（依數量展開）
@@ -2036,7 +2133,7 @@ export default {
           if (!rem) return
           const match = groupIds.length
             ? (f.bundleGroupId && groupIds.includes(String(f.bundleGroupId)))
-            : (addonIds.length ? addonIds.includes(String(f.categoryId || '')) : true)
+            : true
           if (!match) return
           for (let k = 0; k < rem; k++) addonUnits.push(ci)
         })
@@ -2106,17 +2203,15 @@ export default {
       let totalSavings = 0
       rules.forEach(r => {
         if (freeTriggerUnits <= 0) return
-        const triggerIds = (r.triggerCategoryIds || []).map(String)
-        const addonIds = (r.addonCategoryIds || []).map(String)
         const groupIds = (r.bundleGroupIds || []).map(String)
-        const addonPrice = Number(r.addonPrice !== undefined ? r.addonPrice : r.combinedPrice) || 0
+        const addonPrice = Number(r.addonPrice) || 0
 
         // 本規則可用的主食單位（依數量展開）
         const triggerUnits = []
         sent.forEach(({ f, ci }) => {
           const rem = triggerRemaining[ci] || 0
           if (!rem) return
-          if (triggerIds.length && !triggerIds.includes(String(f.categoryId || ''))) return
+          if (!this.matchingRuleTriggerMatches(f, r)) return
           for (let k = 0; k < rem; k++) triggerUnits.push(ci)
         })
         // 本規則可用的飲品單位（依數量展開）
@@ -2126,7 +2221,7 @@ export default {
           if (!rem) return
           const match = groupIds.length
             ? (f.bundleGroupId && groupIds.includes(String(f.bundleGroupId)))
-            : (addonIds.length ? addonIds.includes(String(f.categoryId || '')) : true)
+            : true
           if (!match) return
           for (let k = 0; k < rem; k++) addonUnits.push(idx)
         })
@@ -2304,7 +2399,7 @@ export default {
       this.$axios.get('/api/zone/list').then(res => {
         this.zones = res.data || []
         if (this.zones.length && !this.zones.find(z => z.name === this.selectedZone)) this.selectedZone = this.zones[0].name
-      }).catch(() => { this.zones = [{ name: '堂食' }, { name: '外賣' }, { name: '外帶' }, { name: '外送' }] })
+      }).catch(() => { this.zones = [{ name: '堂食' }, { name: '外賣枱' }, { name: '外帶' }, { name: '外賣' }] })
     },
     loadMenu () {
       const mode = this.selectedZone || '堂食'
@@ -2348,6 +2443,24 @@ export default {
           const food = this.commodityFood(it.commodityId || it._id)
           const cats = (itCopy.modCategories && itCopy.modCategories.length) ? itCopy.modCategories : ((food && food.modCategories) || [])
           itCopy.modCategories = cats
+          // 依改碼類別分組，帶入該類別已有的 minSelect/maxSelect（同步重用改碼類別設定），供點餐端提示與限制
+          const catMap = {}
+          this.modCodeCategories.forEach(c => { catMap[c.name] = c })
+          itCopy.modGroups = cats
+            .map(catName => {
+              const cat = catMap[catName]
+              const modPool = (this.modCodeListAll && this.modCodeListAll.length) ? this.modCodeListAll : this.modCodeList
+              return {
+                name: catName,
+                minSelect: (cat && cat.minSelect) || 0,
+                maxSelect: (cat && cat.maxSelect) || 0,
+                mods: modPool
+                  .filter(m => m.category === catName)
+                  .map(m => ({ modCodeId: String(m._id), name: m.name, price: m.price || 0, station: m.station || '', soldOut: !!m.soldOut }))
+              }
+            })
+            .filter(g => g.mods.length)
+          // 保留既有 flat modifiers（其他端/舊邏輯仍使用）
           if (!itCopy.modifiers || !itCopy.modifiers.length) {
             if (cats.length) {
               itCopy.modifiers = this.modCodeList
@@ -2366,39 +2479,17 @@ export default {
       if (!fid) return null
       return (this.combos || []).find(c => !c.soldOut && c.autoPopup !== false && isEffectiveNow(c.effectiveTime) && (c.mainDishes || []).some(m => String(m.commodityId || '') === fid))
     },
-    // 貨品做撞餐：貨品本身掛了跟餐組（addonGroups），點擊時自動帶出跟餐選單
-    addonCombo (food) {
-      const groups = (food && food.addonGroups) || []
-      if (!groups.length) return null
-      return {
-        _id: food._id,
-        name: (food.name || '') + ' 跟餐',
-        price: food.price || 0,
-        type: 'select',
-        showItems: true,
-        soldOut: false,
-        departmentSplit: [],
-        groups: groups.map(g => ({
-          name: g.name || '跟餐',
-          min: g.min != null ? g.min : 1,
-          max: g.max != null ? g.max : 1,
-          allowRepeat: !!g.allowRepeat,
-          fixed: false,
-          station: g.station || '',
-          groupPrice: Number(g.groupPrice) || 0,
-          items: (g.items || []).map(i => ({ commodityId: i.commodityId || '', name: i.name || '', price: i.price || 0, upgradePrice: i.upgradePrice || 0, modCategories: i.modCategories || [] }))
-        })),
-        autoPopup: true
-      }
-    },
     openComboPicker (combo, mainDish) {
+      combo = (combo && combo._comboData) ? combo._comboData : combo
       if (combo.soldOut) { this.$message({ type: 'warning', message: '此套餐已售罄' }); return }
       this.syncItemEditLeft()
       combo = this.enrichComboModifiers(combo)
       const skipPick = combo.showItems === false
       const selections = {}
       ;(combo.groups || []).forEach((group, index) => {
-        const defaults = skipPick || group.fixed ? (group.items || []).map((_, i) => i) : []
+        const defaults = (skipPick || group.fixed)
+          ? (group.items || []).map((it, i) => (it.soldOut ? -1 : i)).filter(i => i >= 0)
+          : []
         this.$set(selections, index, defaults)
       })
       this.comboDialog = { show: !skipPick, combo, selections, mods: {}, skipPick, editIndex: -1, mainDish: mainDish || null, mainDishAddon: !!mainDish }
@@ -2418,17 +2509,40 @@ export default {
       let extraTotal = 0
       for (let gi = 0; gi < (combo.groups || []).length; gi++) {
         const group = combo.groups[gi]
-        const indexes = this.comboDialog.selections[gi] || []
-        if (!this.comboDialog.skipPick && (indexes.length < (group.min || 0) || indexes.length > (group.max || 1))) {
+        const indexes = (this.comboDialog.selections[gi] || []).filter(ii => {
+          const it = group.items[ii]
+          return it && !it.soldOut
+        })
+        if (!this.comboDialog.skipPick && !group.fixed && (indexes.length < (group.min || 0) || indexes.length > (group.max || 1))) {
           this.$message({ type: 'warning', message: `請在「${group.name}」選擇 ${(group.min || 0)} 至 ${(group.max || 1)} 項` })
           return
         }
         const snapshotItems = []
+        let modInvalid = false
         indexes.forEach(ii => {
+          if (modInvalid) return
           const item = group.items[ii]
           if (!item) return
           // Modifier Master：選中品項的改碼（走蔥/加蛋/轉凍飲 +$3）
           const chosenMods = this.comboMods(gi, ii)
+          // 驗證改碼類別最少/最多可選（同步改碼類別 minSelect/maxSelect）
+          const itemModGroups = item.modGroups || []
+          for (const mg of itemModGroups) {
+            const min = mg.minSelect || 0
+            const max = mg.maxSelect || 0
+            if (!min && !max) continue
+            const cnt = chosenMods.filter(x => x && (mg.mods || []).some(mm => (mm.modCodeId || mm.name) === (x.id || x.name))).length
+            if (min > 0 && cnt < min) {
+              this.$message({ type: 'warning', message: `「${item.name}」改碼類別「${mg.name}」最少需選 ${min} 項` })
+              modInvalid = true
+              return
+            }
+            if (max > 0 && cnt > max) {
+              this.$message({ type: 'warning', message: `「${item.name}」改碼類別「${mg.name}」最多可選 ${max} 項` })
+              modInvalid = true
+              return
+            }
+          }
           const itemFood = this.commodityFood(item.commodityId || item._id)
           const itemCats = (item.modCategories && item.modCategories.length) ? item.modCategories : ((itemFood && itemFood.modCategories) || [])
           // 檔口路由：套餐分組未指定 station 時，改用底層貨品的 station/stations，避免全部落到「通用」→ 第一個廚房檔口
@@ -2438,13 +2552,14 @@ export default {
           snapshotItems.push({ commodityId: item.commodityId || '', name: item.name, price: item.price || 0, upgradePrice: item.upgradePrice || 0, modifiers: (item.modifiers || []).slice(), substitutes: (item.substitutes || []).slice(), modCategories: (itemCats || []).slice(), itemIndex: ii })
           contents.push({ _id: item.commodityId || '', commodityId: item.commodityId || '', name: item.name, price: (item.price || 0) + (item.upgradePrice || 0), upgradePrice: item.upgradePrice || 0, count: 1, station: contentStation, stations: contentStations, mods: chosenMods, modCategories: (itemCats || []).slice(), gi, ii })
         })
+        if (modInvalid) return
         if (indexes.length > 0 && Number(group.groupPrice) > 0) extraTotal += Number(group.groupPrice)
         snapshotGroups.push({ name: group.name, station: group.station || '', min: group.min || 0, max: group.max || 1, allowRepeat: !!group.allowRepeat, fixed: !!group.fixed, groupPrice: Number(group.groupPrice) || 0, items: snapshotItems })
       }
       const mainDish = this.comboDialog.mainDish || null
       const isAddon = !!this.comboDialog.mainDishAddon
       const basePrice = isAddon ? 0 : (Number(combo.price) || 0)
-      const item = { _id: combo._id, name: combo.name, price: Math.round((basePrice + extraTotal) * 100) / 100, count: 1, mods: [], discount: 1, free: false, customPrice: 0, contents, comboId: combo._id, comboName: combo.name, comboSnapshot: { type: combo.type, price: basePrice, groups: snapshotGroups }, departmentSplit: (combo.departmentSplit || []).slice(), showItems: combo.showItems !== false, sent: false, _mainDishAddon: isAddon }
+      const item = { _id: combo._id, name: combo.name, price: Math.round((basePrice + extraTotal) * 100) / 100, count: 1, mods: [], discount: 1, free: false, customPrice: 0, contents, comboId: combo._id, comboName: combo.name, comboSnapshot: { type: combo.type, price: basePrice, groups: snapshotGroups }, departmentSplit: (combo.departmentSplit || []).slice(), showItems: combo.showItems !== false, noPrintComboName: !!combo.noPrintComboName, sent: false, _mainDishAddon: isAddon, mainGroupId: combo.mainGroupId || '', code: combo.code || '' }
       if (editIndex >= 0) {
         const orig = this.cart[editIndex]
         if (orig) {
@@ -2466,7 +2581,7 @@ export default {
       } else if (mainDish) {
         // 永富式主食自動彈出：主食保留為獨立貨品行（跟餐價 = combo.price），跟餐加配另起一行
         const linkId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
-        const mainItem = { _id: mainDish._id, name: mainDish.name, name2: mainDish.name2 || '', price: Number(combo.price) || 0, count: 1, mods: [], discount: 1, free: false, customPrice: 0, station: mainDish.station, stations: mainDish.stations, category: mainDish.category || '', categoryId: mainDish.categoryId || '', categoryName: mainDish.categoryName || mainDish.category || '', categoryCode: mainDish.categoryCode || '', department: mainDish.department || '', plu: mainDish.plu || '', modCategories: mainDish.modCategories || [], jumpSpecIndex: mainDish.jumpSpecIndex || 0, jumpSpecName: mainDish.jumpSpecName || '', mandatory: !!mainDish.mandatory, addTime: null, sent: false, _comboLinkId: linkId }
+        const mainItem = { _id: mainDish._id, name: mainDish.name, name2: mainDish.name2 || '', price: Number(combo.price) || 0, count: 1, mods: [], discount: 1, free: false, customPrice: 0, station: mainDish.station, stations: mainDish.stations, category: mainDish.category || '', categoryId: mainDish.categoryId || '', categoryName: mainDish.categoryName || mainDish.category || '', categoryCode: mainDish.categoryCode || '', department: mainDish.department || '', plu: mainDish.plu || '', code: mainDish.code || '', modCategories: mainDish.modCategories || [], jumpSpecIndex: mainDish.jumpSpecIndex || 0, jumpSpecName: mainDish.jumpSpecName || '', mandatory: !!mainDish.mandatory, addTime: null, sent: false, _comboLinkId: linkId }
         item._comboLinkId = linkId
         this.refreshItem(mainItem)
         this.refreshItem(item)
@@ -2534,6 +2649,7 @@ export default {
     },
     loadModCodes () {
       this.$axios.get('/api/modcode/list', { params: { channel: 'pos' } }).then(res => { this.modCodeList = res.data || [] }).catch(() => { this.modCodeList = [] })
+      this.$axios.get('/api/modcode/list', { params: { channel: 'pos', includeSoldOut: '1' } }).then(res => { this.modCodeListAll = res.data || [] }).catch(() => { this.modCodeListAll = [] })
       this.loadModCategories()
     },
     loadModCategories () {
@@ -2564,6 +2680,7 @@ export default {
         this.servingNewItemsOnly = !!d.servingNewItemsOnly
         this.bundleEnabled = !!d.bundleEnabled
         this.bundleMode = d.bundleMode === 'manual' || d.bundleMode === 'both' ? d.bundleMode : 'auto'
+        this.directPayMode = !!d.directPayMode
         this.bundleRule = d.bundleRule === 'priority' ? 'priority' : 'bestPrice'
         this.bundleApplied = this.bundleMode !== 'manual'
         this.shareTableEnabled = !!d.shareTableEnabled
@@ -2852,15 +2969,17 @@ export default {
     physicalNos (no) {
       // 搭枱模式：主枱卡片需連同子枱訂單一起判斷（狀態/金額/進入）
       if (!this.shareTableEnabled) return [String(no)]
-      return [String(no)].concat(this.tables.filter(tb => String(tb.physicalNo) === String(no) && tb.shareSuffix).map(tb => String(tb.no)))
+      return [String(no)].concat(this.physicalNoMap[String(no)] || [])
     },
     lockOrderOf (no) {
-      return this.unfinishedOrders.find(o => this.physicalNos(no).indexOf(String(o.deskNo)) >= 0 && o.source === 'extension')
+      const nos = this.physicalNos(no)
+      return this.unfinishedOrders.find(o => nos.indexOf(String(o.deskNo)) >= 0 && o.source === 'extension')
     },
     boardClass (no) {
       if (no === this.selectedTable) return 'board-active'
       if (this.lockOrderOf(no)) return 'board-qr'
-      const orders = this.unfinishedOrders.filter(o => this.physicalNos(no).indexOf(String(o.deskNo)) >= 0 && o.order && o.order.length)
+      const nos = this.physicalNos(no)
+      const orders = this.unfinishedOrders.filter(o => nos.indexOf(String(o.deskNo)) >= 0 && o.order && o.order.length)
       if (orders.length) {
         if (orders.some(o => o.relisted)) return 'board-relisted'
         if (orders.some(o => o.source === 'extension')) return 'board-qr'
@@ -2872,7 +2991,8 @@ export default {
     boardStatus (no) {
       if (no === this.selectedTable) return '使用中'
       if (this.lockOrderOf(no)) return '使用中'
-      const orders = this.unfinishedOrders.filter(o => this.physicalNos(no).indexOf(String(o.deskNo)) >= 0 && o.order && o.order.length)
+      const nos = this.physicalNos(no)
+      const orders = this.unfinishedOrders.filter(o => nos.indexOf(String(o.deskNo)) >= 0 && o.order && o.order.length)
       if (orders.length) {
         if (orders.some(o => o.relisted)) return '退單'
         if (orders.some(o => o.source === 'extension')) return '使用中'
@@ -2882,44 +3002,45 @@ export default {
       return '空枱'
     },
     tableAmount (no) {
-      return this.unfinishedOrders.filter(o => this.physicalNos(no).indexOf(String(o.deskNo)) >= 0).reduce((sum, o) => sum + (o.totalPrice || 0), 0)
+      const nos = this.physicalNos(no)
+      return this.unfinishedOrders.filter(o => nos.indexOf(String(o.deskNo)) >= 0).reduce((sum, o) => sum + (o.totalPrice || 0), 0)
     },
     tableDuration (no) {
-      const order = this.unfinishedOrders.find(o => String(o.deskNo) === String(no))
+      const order = (this.orderMap[String(no)] || []).find(o => String(o.deskNo) === String(no))
       return order && order.date ? this.durationText(order.date) : ''
     },
     hasOrder (no) {
-      return this.unfinishedOrders.some(o => String(o.deskNo) === String(no) && o.order && o.order.length)
+      return (this.orderMap[String(no)] || []).some(o => o.order && o.order.length)
     },
     isTransferred (no) {
-      return this.unfinishedOrders.some(o => String(o.deskNo) === String(no) && o.transferredFrom && (!o.fromAction || o.fromAction === 'transfer'))
+      return (this.orderMap[String(no)] || []).some(o => o.transferredFrom && (!o.fromAction || o.fromAction === 'transfer'))
     },
     transferInfo (no) {
-      const o = this.unfinishedOrders.find(o => String(o.deskNo) === String(no) && o.transferredFrom)
+      const o = (this.orderMap[String(no)] || []).find(o => o.transferredFrom)
       if (!o) return ''
       return '從 ' + o.transferredFrom + ' 號枱轉入'
     },
     isMerged (no) {
-      return this.unfinishedOrders.some(o => String(o.deskNo) === String(no) && o.fromAction === 'merge')
+      return (this.orderMap[String(no)] || []).some(o => o.fromAction === 'merge')
     },
     mergeInfo (no) {
-      const o = this.unfinishedOrders.find(o => String(o.deskNo) === String(no) && o.fromAction === 'merge')
+      const o = (this.orderMap[String(no)] || []).find(o => o.fromAction === 'merge')
       if (!o) return ''
       return '從 ' + (o.transferredFrom || o.deskNo) + ' 號枱併入'
     },
     isSplit (no) {
-      return this.unfinishedOrders.some(o => String(o.deskNo) === String(no) && o.fromAction === 'split')
+      return (this.orderMap[String(no)] || []).some(o => o.fromAction === 'split')
     },
     splitInfo (no) {
-      const o = this.unfinishedOrders.find(o => String(o.deskNo) === String(no) && o.fromAction === 'split')
+      const o = (this.orderMap[String(no)] || []).find(o => o.fromAction === 'split')
       if (!o) return ''
       return '從 ' + (o.transferredFrom || o.deskNo) + ' 號枱分出'
     },
     isChased (no) {
-      return this.unfinishedOrders.some(o => String(o.deskNo) === String(no) && o.chasedAt)
+      return (this.orderMap[String(no)] || []).some(o => o.chasedAt)
     },
     chasedInfo (no) {
-      const o = this.unfinishedOrders.find(o => String(o.deskNo) === String(no) && o.chasedAt)
+      const o = (this.orderMap[String(no)] || []).find(o => o.chasedAt)
       if (!o) return ''
       const t = new Date(o.chasedAt)
       return '追單時間：' + t.getHours().toString().padStart(2, '0') + ':' + t.getMinutes().toString().padStart(2, '0')
@@ -2967,6 +3088,12 @@ export default {
         payMethod: order && order.payMethod ? order.payMethod : ''
       }
     },
+    buildFloatingRow (order, status, amount) {
+      const t = { no: order.zone || '外賣', name: '', shareSuffix: '', zone: order.zone || '外賣' }
+      const row = this.buildTableRow(t, order, status, amount)
+      row.floating = true
+      return row
+    },
     applyRounding (amount) {
       if (this.roundingMode === 'up') return Math.ceil(amount)
       if (this.roundingMode === 'down') return Math.floor(amount)
@@ -3004,6 +3131,8 @@ export default {
         return
       }
       this.viewingSettledOrder = null
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
       this.selectedTable = no
       this.selectedZone = '堂食'
       this.view = 'order'
@@ -3044,8 +3173,10 @@ export default {
         categoryName: item.categoryName || item.category || '',
         categoryCode: item.categoryCode || '',
         bundleGroupId: item.bundleGroupId || '',
+        mainGroupId: item.mainGroupId || '',
         bundlePrice: !!item.bundlePrice,
         plu: item.plu || '',
+        code: item.code || '',
         jumpSpecIndex: item.jumpSpecIndex || 0,
         jumpSpecName: item.jumpSpecName || '',
         mandatory: !!item.mandatory,
@@ -3054,6 +3185,7 @@ export default {
         comboId: item.comboId,
         comboName: item.comboName,
         comboSnapshot: item.comboSnapshot,
+        noPrintComboName: !!item.noPrintComboName,
         departmentSplit: item.departmentSplit || [],
         showItems: item.showItems !== false,
         dishStatus: item.dishStatus || '',
@@ -3071,6 +3203,7 @@ export default {
       const sent = []
       orders.forEach(o => {
         (o.order || []).forEach((item, idx) => {
+          if (item.voidStatus === 1) return
           sent.push(this.toCartItem(item, o.orderNo, idx))
         })
       })
@@ -3084,7 +3217,10 @@ export default {
       const current = this.carts[no] || []
       const orders = this.unfinishedOrders.filter(o => String(o.deskNo) === String(no))
       const sent = []
-      orders.forEach(o => (o.order || []).forEach((item, idx) => sent.push(this.toCartItem(item, o.orderNo, idx))))
+      orders.forEach(o => (o.order || []).forEach((item, idx) => {
+        if (item.voidStatus === 1) return
+        sent.push(this.toCartItem(item, o.orderNo, idx))
+      }))
       const sig = arr => arr.map(i => `${String(i._orderNo || '')}|${String(i._orderIdx ?? '')}|${i.name}|${i.count}|${i.dishStatus || ''}`).join(';;')
       if (sig(current.filter(i => i.sent)) === sig(sent)) return
       this.rebuildTableCart(no)
@@ -3097,15 +3233,38 @@ export default {
         this.$message({ type: 'warning', message: '找不到該已付款訂單' })
         return
       }
+      // 外賣/外賣枱浮動單：以 zone 進入，而非堂食枱號
+      if (row.floating) {
+        const zone = order.zone === '外賣' ? '外賣' : '外賣枱'
+        this.selectedZone = zone
+        this.selectedTable = null
+        this.viewingSettledOrder = order
+        this.viewingFloatingOrder = null
+        this.pendingOrderNo = null
+        this.view = 'order'
+        this.ensureActiveCategory()
+        const key = zone === '外賣' ? 'delivery' : 'takeaway'
+        const cart = []
+        ;(order.order || []).forEach((item, idx) => {
+          if (item.voidStatus === 1) return
+          cart.push(this.toCartItem(item, order.orderNo, idx))
+        })
+        this.$set(this.carts, key, cart)
+        this.$message({ type: 'info', message: `已載入已付款訂單 ${order.orderNo}` })
+        return
+      }
       const no = row.table ? row.table.no : row.no
       this.selectedTable = no
       this.selectedZone = '堂食'
       this.viewingSettledOrder = order
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
       this.view = 'order'
       this.ensureActiveCategory()
       this.onTableChange()
       const cart = []
       ;(order.order || []).forEach((item, idx) => {
+        if (item.voidStatus === 1) return
         cart.push(this.toCartItem(item, order.orderNo, idx))
       })
       this.$set(this.carts, no, cart)
@@ -3113,14 +3272,75 @@ export default {
     },
     enterTakeaway () {
       this.viewingSettledOrder = null
-      this.selectedZone = '外賣'
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
+      this.selectedZone = '外賣枱'
       this.view = 'order'
       this.ensureActiveCategory()
       if (!this.carts.takeaway) this.$set(this.carts, 'takeaway', [])
+      if (!this.carts.takeaway.length) this.reserveOrderNo('外賣枱')
+    },
+    enterDelivery () {
+      this.viewingSettledOrder = null
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
+      this.selectedZone = '外賣'
+      this.view = 'order'
+      this.ensureActiveCategory()
+      if (!this.carts.delivery) this.$set(this.carts, 'delivery', [])
+      if (!this.carts.delivery.length) this.reserveOrderNo('外賣')
+    },
+    enterFloatingOrder (row) {
+      const zone = row.zone === '外賣' ? '外賣' : '外賣枱'
+      this.viewingSettledOrder = null
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
+      this.selectedZone = zone
+      this.selectedTable = null
+      this.view = 'order'
+      this.ensureActiveCategory()
+      const key = zone === '外賣' ? 'delivery' : 'takeaway'
+      if (!this.carts[key]) this.$set(this.carts, key, [])
+      const order = this.unfinishedOrders.find(o => String(o._id) === String(row._id))
+      if (!order) {
+        this.$message({ type: 'warning', message: '找不到該訂單' })
+        return
+      }
+      const cart = []
+      ;(order.order || []).forEach((item, idx) => {
+        if (item.voidStatus === 1) return
+        cart.push(this.toCartItem(item, order.orderNo, idx))
+      })
+      this.$set(this.carts, key, cart)
+      this.viewingFloatingOrder = order
+      this.$message({ type: 'info', message: `已載入${zone}訂單 ${order.orderNo}` })
+    },
+    reserveOrderNo (zone) {
+      return this.$axios.post('/api/order/previewNo', { terminalCode: this.selectedTerminal, zone })
+        .then(res => { this.pendingOrderNo = res.data.orderNo })
+        .catch(() => {})
     },
     backToBoard () {
+      const hasUnsent = this.cart.some(i => !i.sent)
+      if (hasUnsent) {
+        this.$confirm('購物車內有未送單貨品，是否繼續？', '返回枱號', {
+          type: 'warning',
+          customClass: 'back-to-board-alert',
+          confirmButtonText: '是',
+          cancelButtonText: '否'
+        }).then(() => {
+          this.clearNewItems()
+          this.doBackToBoard()
+        }).catch(() => {})
+        return
+      }
+      this.doBackToBoard()
+    },
+    doBackToBoard () {
       const deskNo = this.selectedTable
       this.viewingSettledOrder = null
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
       this.view = 'board'
       this.selectedTable = null
       if (deskNo) this.unlockTable(deskNo)
@@ -3130,6 +3350,8 @@ export default {
     logout () {
       const deskNo = this.selectedTable
       this.viewingSettledOrder = null
+      this.viewingFloatingOrder = null
+      this.pendingOrderNo = null
       localStorage.removeItem('orderTk')
       this.loggedIn = false
       this.loginNo = ''
@@ -3139,6 +3361,26 @@ export default {
       this.selectedTable = null
       this.carts = {}
       if (deskNo) this.unlockTable(deskNo)
+    },
+    enterFullscreen () {
+      try {
+        const el = document.documentElement
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen
+        if (req) {
+          const p = req.call(el)
+          if (p && p.catch) p.catch(() => {})
+        }
+      } catch (e) {}
+    },
+    toggleFullscreen () {
+      try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          const exit = document.exitFullscreen || document.webkitExitFullscreen
+          if (exit) exit.call(document)
+        } else {
+          this.enterFullscreen()
+        }
+      } catch (e) {}
     },
     leaveApp () {
       try {
@@ -3239,7 +3481,7 @@ export default {
       if (item.addTime) parts.push('入單時間：' + this.fmtTime(item.addTime))
       const st = this.itemStationLabel(item)
       if (st) parts.push('印表機：' + st)
-      if (item.plu) parts.push('餐號：' + item.plu)
+      if (item.code) parts.push('貨品編號：' + item.code)
       if (item.price != null) {
         const priceLabel = this.jumpSpecLabel(item) || '價格'
         parts.push(priceLabel + '：$' + item.price)
@@ -3308,16 +3550,95 @@ export default {
       this.pluInput = ''
       this.addFood(found)
     },
+    handleHardwarePluKeydown (e) {
+      if (!this.loggedIn || (this.view !== 'order' && this.view !== 'board')) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : ''
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || (e.target && e.target.isContentEditable)) return
+      if (this.pluDialog.show) return
+      if (document.querySelector('.v-modal')) return
+
+      if (e.key === 'Enter' || e.key === '+') {
+        e.preventDefault()
+        const buf = this.scanBuffer
+        // 掃描槍特徵：末字元與 Enter 間隔極短（<100ms），人工手按較慢
+        const isScan = this.scanLastTs > 0 && (Date.now() - this.scanLastTs) <= 100
+        this.scanBuffer = ''
+        this.scanLastTs = 0
+        if (isScan) {
+          const desk = this.parseTableBarcode(buf)
+          if (desk !== null) {
+            this.pluInput = ''
+            this.jumpToTableByScan(desk)
+            return
+          }
+        }
+        if (this.view === 'order' && (this.pluInput || '').trim()) this.addByPlu()
+        else this.pluInput = ''
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        this.pluInput = ''
+        this.scanBuffer = ''
+        return
+      }
+      if (e.key === 'Backspace' || e.key === '-') {
+        e.preventDefault()
+        this.pluInput = (this.pluInput || '').slice(0, -1)
+        this.scanBuffer = ''
+        return
+      }
+      if (e.key === '.') {
+        e.preventDefault()
+        this.pluInput = ''
+        this.scanBuffer = ''
+        return
+      }
+      if (e.key && e.key.length === 1) {
+        // 條碼掃描器快速連續輸入（含英數字）：追蹤掃描緩衝，供 Enter 時判斷跳枱
+        const now = Date.now()
+        if (now - this.scanLastTs > 120) this.scanBuffer = ''
+        this.scanBuffer += e.key
+        this.scanLastTs = now
+        if (this.view === 'order' && /^[0-9]$/.test(e.key)) {
+          e.preventDefault()
+          this.pluInput = (this.pluInput || '') + e.key
+        }
+      }
+    },
+    parseTableBarcode (buf) {
+      const s = String(buf || '').trim()
+      if (!s) return null
+      // 條碼內容即純台號（如 5、10、A1），僅當值匹配現有台號時視為掃枱跳號
+      if (this.tables.some(t => String(t.no) === s)) return s
+      return null
+    },
+    jumpToTableByScan (desk) {
+      const no = String(desk)
+      if (!this.tables.some(t => String(t.no) === no)) {
+        this.$message({ type: 'warning', message: `找不到枱號 ${no}` })
+        return
+      }
+      if (String(this.selectedTable) === no && this.view === 'order') {
+        this.$message({ type: 'info', message: `已在枱號 ${no}` })
+        return
+      }
+      this.enterTable(no)
+    },
     addFood (food) {
       if (this.viewingSettled) { this.$message({ type: 'warning', message: '已結賬單唯讀，如需修改請使用「反結賬」' }); return }
-      if (food._isModCode) { this.addModToSelectedItem(food); return }
+      if (food._isModCode) {
+        if (food.soldOut) { this.$message({ type: 'warning', message: '此改碼已沽清' }); return }
+        this.addModToSelectedItem(food); return
+      }
       if (food._isModCategory) { this.openModCatFoodDialog(food); return }
       if (food.soldOut) { this.$message({ type: 'warning', message: '此品項已沽清' }); return }
       if (food.openPrice) {
         this.openPriceDialog = { show: true, food }
         return
       }
-      const mainCombo = this.mainDishCombo(food) || this.addonCombo(food)
+      const mainCombo = this.mainDishCombo(food)
       if (mainCombo) {
         this.openComboPicker(mainCombo, food)
         return
@@ -3333,7 +3654,7 @@ export default {
         this.selectedContentKey = ''
         this.selectedCartIndex = cart.indexOf(exist)
       } else {
-        const item = { _id: food._id, name: food.name, name2: food.name2 || '', price: food.price, count: useQty, mods: [], discount: 1, free: false, customPrice: 0, station: food.station, stations: food.stations, category: food.category || '', categoryId: food.categoryId || '', bundleGroupId: food.bundleGroupId || '', categoryName: food.categoryName || food.category || '', categoryCode: food.categoryCode || '', department: food.department || '', plu: food.plu || '', modCategories: food.modCategories || [], jumpSpecIndex: food.jumpSpecIndex || 0, jumpSpecName: food.jumpSpecName || '', mandatory: !!food.mandatory, addTime: null, sent: false }
+        const item = { _id: food._id, name: food.name, name2: food.name2 || '', price: food.price, count: useQty, mods: [], discount: 1, free: false, customPrice: 0, station: food.station, stations: food.stations, category: food.category || '', categoryId: food.categoryId || '', bundleGroupId: food.bundleGroupId || '', mainGroupId: food.mainGroupId || '', categoryName: food.categoryName || food.category || '', categoryCode: food.categoryCode || '', department: food.department || '', plu: food.plu || '', code: food.code || '', modCategories: food.modCategories || [], jumpSpecIndex: food.jumpSpecIndex || 0, jumpSpecName: food.jumpSpecName || '', mandatory: !!food.mandatory, addTime: null, sent: false }
         this.refreshItem(item)
         this.$set(this.carts, this.cartKey, cart.concat(item))
         this.selectedContentKey = ''
@@ -3348,7 +3669,7 @@ export default {
       if (this.viewingSettled) { this.$message({ type: 'warning', message: '已結賬單唯讀，如需修改請使用「反結賬」' }); return }
       const food = this.openPriceDialog.food || {}
       const cart = this.cart
-      const item = { _id: food._id, name, price: food.price || 0, count: 1, mods: [], discount: 1, free: false, customPrice: price, station: food.station, stations: food.stations, category: food.category || '', categoryId: food.categoryId || '', bundleGroupId: food.bundleGroupId || '', categoryName: food.categoryName || food.category || '', categoryCode: food.categoryCode || '', department: food.department || '', plu: food.plu || '', modCategories: food.modCategories || [], jumpSpecIndex: food.jumpSpecIndex || 0, jumpSpecName: food.jumpSpecName || '', mandatory: !!food.mandatory, addTime: null, sent: false }
+      const item = { _id: food._id, name, price: food.price || 0, count: 1, mods: [], discount: 1, free: false, customPrice: price, station: food.station, stations: food.stations, category: food.category || '', categoryId: food.categoryId || '', bundleGroupId: food.bundleGroupId || '', mainGroupId: food.mainGroupId || '', categoryName: food.categoryName || food.category || '', categoryCode: food.categoryCode || '', department: food.department || '', plu: food.plu || '', code: food.code || '', modCategories: food.modCategories || [], jumpSpecIndex: food.jumpSpecIndex || 0, jumpSpecName: food.jumpSpecName || '', mandatory: !!food.mandatory, addTime: null, sent: false }
       this.refreshItem(item)
       this.$set(this.carts, this.cartKey, cart.concat(item))
       this.selectedContentKey = ''
@@ -3474,18 +3795,20 @@ export default {
       if (id === 'list' && this.boardMode === 'list') return 'active'
       if (id === 'search' && this.boardMode === 'search') return 'active'
       if (id === 'history' && this.boardMode === 'history') return 'active'
-      if (id === 'takeaway' && this.boardMode === 'grid' && this.boardZoneFilter === '外賣') return 'active'
+      if (id === 'takeaway' && this.boardMode === 'grid' && this.boardZoneFilter === '外賣枱') return 'active'
       if (id === 'dineIn' && this.boardMode === 'grid' && this.boardZoneFilter === '堂食') return 'active'
+      if (id === 'delivery' && this.view === 'order' && this.selectedZone === '外賣') return 'active'
       return ''
     },
     sbIcon (id) {
-      const icons = { grid: 'el-icon-menu', takeaway: 'el-icon-shopping-bag-2', dineIn: 'el-icon-office-building', list: 'el-icon-tickets', search: 'el-icon-search', history: 'el-icon-time', refresh: 'el-icon-refresh', addTable: 'el-icon-plus', batchPrint: 'el-icon-printer', report: 'el-icon-data-analysis', settings: 'el-icon-setting' }
+      const icons = { grid: 'el-icon-menu', takeaway: 'el-icon-shopping-bag-2', dineIn: 'el-icon-office-building', delivery: 'el-icon-truck', list: 'el-icon-tickets', search: 'el-icon-search', history: 'el-icon-time', refresh: 'el-icon-refresh', addTable: 'el-icon-plus', batchPrint: 'el-icon-printer', report: 'el-icon-data-analysis', settings: 'el-icon-setting' }
       return icons[id] || 'el-icon-more'
     },
     sbClick (id) {
       if (id === 'grid') { this.boardMode = 'grid'; return }
-      if (id === 'takeaway') { this.boardZoneFilter = '外賣'; return }
+      if (id === 'takeaway') { this.boardZoneFilter = '外賣枱'; return }
       if (id === 'dineIn') { this.boardZoneFilter = '堂食'; return }
+      if (id === 'delivery') { this.enterDelivery(); return }
       if (id === 'list') { this.boardMode = 'list'; this.tableListZone = '堂食'; return }
       if (id === 'search') { this.openTableSearch(); return }
       if (id === 'history') { this.openHistory(); return }
@@ -3522,6 +3845,10 @@ export default {
         this.openSettledOrder(row)
         return
       }
+      if (row.floating) {
+        this.enterFloatingOrder(row)
+        return
+      }
       this.enterTable(row.table ? row.table.no : row.no)
     },
     tableRowClass ({ row }) {
@@ -3534,13 +3861,82 @@ export default {
     },
     openSoldOut () {
       const list = []
+      const seen = new Set()
       this.goods.forEach(g => {
         (g.foods || []).forEach(f => {
           if (!f.soldOut) return
-          list.push({ _id: f._id, plu: f.plu || '', code: f.code || '', name: f.name, soldOut: true, stock: f.stock === undefined || f.stock === null ? -1 : f.stock })
+          const key = String(f._id)
+          if (seen.has(key)) return
+          seen.add(key)
+          list.push({ _id: f._id, plu: f.plu || f.code || '', code: f.code || '', name: f.name, soldOut: true, stock: f.stock === undefined || f.stock === null ? -1 : f.stock, _isCombo: !!f._isCombo, _isModCode: !!f._isModCode })
         })
       })
       this.soldOutDialog = { show: true, keyword: '', list, showItemPicker: false, pickerKeyword: '' }
+    },
+    isSoldOutable (food) {
+      if (!food) return false
+      return !!food._isCombo || !!food._isModCode || food._itemType === 'commodity'
+    },
+    foodClick (food) {
+      if (this.foodPressed) { this.foodPressed = false; return }
+      if (food._isCombo) this.openComboPicker(food)
+      else this.addFood(food)
+    },
+    startFoodPress (food, e) {
+      if (!this.isSoldOutable(food)) return
+      this.foodPressed = false
+      this.cancelFoodPress()
+      const pos = (e.touches && e.touches.length) ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY }
+      this.foodPressTimer = setTimeout(() => {
+        this.foodPressed = true
+        this.foodSoldOutMenu = { show: true, x: pos.x, y: pos.y, item: food }
+        // 自動清除長按旗標，避免影響後續點擊
+        setTimeout(() => { this.foodPressed = false }, 800)
+      }, 600)
+    },
+    cancelFoodPress () {
+      if (this.foodPressTimer) {
+        clearTimeout(this.foodPressTimer)
+        this.foodPressTimer = null
+      }
+    },
+    closeFoodSoldOutMenu () {
+      this.foodSoldOutMenu.show = false
+      this.foodPressed = false
+    },
+    doFoodSoldOut (item, soldOut) {
+      this.foodSoldOutMenu.show = false
+      const label = item._isCombo ? '套餐' : (item._isModCode ? '改碼' : '貨品')
+      this.$confirm(`是否將${label}「${item.name}」${soldOut ? '沽清' : '重售'}？`, soldOut ? '沽清' : '重售', { type: 'warning', confirmButtonText: soldOut ? '確認沽清' : '確認重售', cancelButtonText: '取消' })
+        .then(() => this.submitFoodSoldOut(item, soldOut))
+        .catch(() => {})
+    },
+    submitFoodSoldOut (item, soldOut) {
+      let url = '/api/commodity/soldout'
+      if (item._isCombo) url = '/api/combo/soldout'
+      else if (item._isModCode) url = '/api/modcode/soldout'
+      this.$axios.post(url, { _id: item._id, soldOut })
+        .then(res => {
+          this.$message({ type: 'success', message: res.data })
+          this.$set(item, 'soldOut', soldOut)
+          this.syncSoldOutList(item, soldOut)
+          this.loadMenu()
+          if (item._isModCode) this.loadModCodes()
+        })
+        .catch(err => this.$message({ type: 'error', message: err.response ? err.response.data : '更新失敗' }))
+    },
+    syncSoldOutList (item, soldOut) {
+      const list = this.soldOutDialog.list || []
+      const found = list.find(x => String(x._id) === String(item._id))
+      if (soldOut) {
+        if (!found) {
+          list.push({ _id: item._id, plu: item.plu || item.code || '', code: item.code || '', name: item.name, soldOut: true, stock: item.stock === undefined || item.stock === null ? -1 : item.stock, _isCombo: !!item._isCombo, _isModCode: !!item._isModCode })
+        } else {
+          found.soldOut = true
+        }
+      } else if (found) {
+        found.soldOut = false
+      }
     },
     changeQty (index, delta) {
       const item = this.cart[index]
@@ -3954,7 +4350,14 @@ export default {
       if (!cats.length) return false
       const items = this.modCodeList.filter(m => cats.indexOf(m.category) >= 0)
       if (!items.length) return false
-      return this.modCodeCategories.some(c => c.mandatory && cats.indexOf(c.name) >= 0)
+      return this.modCodeCategories.some(c => {
+        if (!c.mandatory || cats.indexOf(c.name) < 0) return false
+        // 有指定貨品時，只有這些貨品會自動彈出
+        if (Array.isArray(c.commodityIds) && c.commodityIds.length) {
+          return c.commodityIds.some(id => String(id) === String(item._id))
+        }
+        return true
+      })
     },
     autoOpenMandatoryMods (index) {
       const item = this.cart[index]
@@ -3964,7 +4367,7 @@ export default {
       return (mods || []).map(m => {
         if (typeof m === 'string') return m
         if (!m) return ''
-        return (m.code ? m.code + ' ' : '') + (m.name || '')
+        return m.name || ''
       }).filter(Boolean)
     },
     applyCategoryOrder (list) {
@@ -4238,7 +4641,7 @@ export default {
       if (!this.checkMandatory()) return
       this.syncPaxFromTeaSeat()
       const defaultMethod = this.payMethods.length ? this.payMethods[0].value : '現金'
-      this.payDialog = { show: true, method: defaultMethod, cashStr: '0', change: 0, invoiceNo: '' }
+      this.payDialog = { show: true, method: defaultMethod, cashStr: '0', change: 0, invoiceNo: '', tip: 0 }
       this.calcChange()
     },
     onCashInput (v) {
@@ -4277,7 +4680,7 @@ export default {
         .then(() => this.repriceSentAddons(this.bundlePlan.bundles))
         .then(() => this.$axios.get('/api/order/unfinished'))
         .then(r => {
-          const os = (r.data || []).filter(o => o.deskNo === (this.isDineIn ? this.selectedTable : 0))
+          const os = (r.data || []).filter(o => this.isDineIn ? String(o.deskNo) === String(this.selectedTable) : o.zone === this.selectedZone)
           return os.length ? os[0] : null
         })
         .then(latest => {
@@ -4300,6 +4703,7 @@ export default {
             waiter: this.staffInfo.name || this.waiter,
             cashier: this.staffInfo.name || this.waiter,
             payMethod,
+            tip: Math.round((Number(this.payDialog.tip) || 0) * 100) / 100,
             terminalCode: this.selectedTerminal
           }
           return this.$axios.post('/api/order/finish', finishPayload).then(() => {
@@ -4346,7 +4750,7 @@ export default {
         .then(() => this.repriceSentAddons(this.bundlePlan.bundles))
         .then(() => this.$axios.get('/api/order/unfinished'))
         .then(r => {
-          const os = (r.data || []).filter(o => o.deskNo === (this.isDineIn ? this.selectedTable : 0))
+          const os = (r.data || []).filter(o => this.isDineIn ? String(o.deskNo) === String(this.selectedTable) : o.zone === this.selectedZone)
           return os.length ? os[0] : null
         })
         .then(latest => {
@@ -4614,7 +5018,8 @@ export default {
         this.lockTable(h.deskNo)
       } else {
         this.selectedZone = h.zone
-        if (!this.carts.takeaway) this.$set(this.carts, 'takeaway', [])
+        const key = this.isDelivery ? 'delivery' : 'takeaway'
+        if (!this.carts[key]) this.$set(this.carts, key, [])
       }
       const target = this.cart
       ;(h.items || []).forEach(item => {
@@ -4688,7 +5093,7 @@ export default {
     openReport () {
       const today = new Date()
       const td = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
-      this.reportDialog = { show: true, type: 'cashier', scope: 'all', dateRange: [td, td], slot: 'all', result: null, selecting: null, dateMode: 'today', printing: false }
+      this.reportDialog = { show: true, type: 'cashier', scope: 'all', dateRange: [td, td], slot: 'all', result: null, selecting: null, dateMode: 'today', mode: 'entry', printing: false, department: 'all', category: 'all', pluFrom: '', pluTo: '', detail: 'detail' }
     },
     loadBizDayStatus () {
       this.$axios.get('/api/businessday/current').then(res => {
@@ -4714,11 +5119,12 @@ export default {
           startingCash: Number(this.dayReportDialog.startingCash) || 0,
           countedCash: Number(this.dayReportDialog.countedCash) || 0,
           remark: this.dayReportDialog.remark,
-          staffName: this.staffInfo.name || ''
+          staffName: this.staffInfo.name || '',
+          staffNo: this.staffInfo.no || ''
         }).then(res => {
           this.$message({ type: 'success', message: res.data.message || '每日結算成功！' })
           this.loadBizDayStatus()
-          this.openDayReport()
+          this.dayReportDialog.show = false
         }).catch(err => {
           this.$message({ type: 'error', message: (err.response && err.response.data) || '每日結算失敗' })
         }).finally(() => { this.dayReportDialog.loading = false })
@@ -4807,16 +5213,16 @@ export default {
         case 'copyOrder': this.toggleCopyOrderMode(); break
         case 'hold': this.holdOrder(); break
         case 'recall': this.openHold(); break
-        case 'print': this.printTicket('print'); break
+        case 'print': this.directPayActive ? this.openPay() : this.printTicket('print'); break
         case 'chase': this.showChaseDialog(); break
-        case 'serving': this.serveTicket(); break
+        case 'serving': this.directPayActive ? this.openPay() : this.serveTicket(); break
         case 'qrcode': this.printTicket('qrcode'); break
         case 'printTableQr': this.printTableQr(); break
         case 'wholeDiscount': this.openWholeDiscount(); break
         case 'itemDiscount': this.openItemDiscount(); break
         case 'clear': this.clearNewItems(); break
         case 'submit': this.submitOrder(); break
-        case 'send': this.sendOrder(); break
+        case 'send': this.directPayActive ? this.openPay() : this.sendOrder(); break
         case 'checkout': this.openPay(); break
         case 'cashCheckout': this.quickCashCheckout(); break
         case 'soldout': this.openSoldOut(); break
@@ -5011,6 +5417,7 @@ export default {
         comboId: combo._id,
         comboName: combo.name,
         comboSnapshot: { type: combo.type, price: combo.price, groups: snapshotGroups },
+        noPrintComboName: !!combo.noPrintComboName,
         departmentSplit: (combo.departmentSplit || []).slice(),
         showItems: combo.showItems !== false,
         sent: false
@@ -5219,11 +5626,11 @@ export default {
         .catch(err => { this.$message({ type: 'error', message: (err.response && err.response.data) || '搭枱失敗' }) })
     },
     openReprint () {
-      const deskNo = this.selectedTable || 0
-      const order = deskNo ? this.unfinishedOrders.find(o => o.deskNo === deskNo) : null
-      if (!order) { this.$message({ type: 'warning', message: '請先選擇有訂單的枱位' }); return }
-      this.$confirm('確定要重印枱 ' + order.deskNo + ' 的最後單據？', '重印單據', { type: 'warning' }).then(() => {
-        this.$axios.post('/api/order/reprint', { deskNo: order.deskNo })
+      const latest = this.settledTodayOrders[0]
+      const label = latest ? (latest.orderNo || ('枱 ' + latest.deskNo)) : ''
+      const msg = label ? ('確定要重印最近一筆結帳單據（' + label + '）？') : '確定要重印最近一筆結帳單據？'
+      this.$confirm(msg, '重印單據', { type: 'warning' }).then(() => {
+        this.$axios.post('/api/order/reprint', {})
           .then(res => { this.$message({ type: 'success', message: res.data || '重印成功' }) })
           .catch(err => { this.$message({ type: 'error', message: (err.response && err.response.data) || '重印失敗' }) })
       }).catch(() => {})
@@ -5279,7 +5686,7 @@ export default {
     showChaseDialog () {
       const order = this.currentOrder
       if (!order) { this.$message({ type: 'info', message: '該枱沒有未結訂單' }); return }
-      const items = (order.order || []).map((it, idx) => ({ ...it, _idx: idx })).filter(it => it.dishStatus !== 'served')
+      const items = (order.order || []).map((it, idx) => ({ ...it, _idx: idx })).filter(it => it.voidStatus !== 1 && it.dishStatus !== 'served')
       if (!items.length) { this.$message({ type: 'info', message: '沒有可追單的品項' }); return }
       this.chaseDialog = { show: true, deskNo: order.deskNo, items, checked: [], loading: false }
     },
@@ -5595,6 +6002,7 @@ export default {
       this.$set(this.carts, this.cartKey, [])
       this.orderRemark = ''
       this.orderDiscount = 0
+      this.pendingOrderNo = null
     },
     cancelItemFromBtn () {
       const idx = this.selectedCartIndex
@@ -5861,20 +6269,6 @@ export default {
         this.openCancelItemDialog([{ ...item, index, cancelQty: 1 }])
       }
     },
-    cancelSelectedItem () {
-      if (this.selectedCartIndex >= 0 && this.cart[this.selectedCartIndex]) {
-        this.cancelItemBySelect(this.selectedCartIndex)
-      } else {
-        this.$message({ type: 'warning', message: '請先點選清單中的菜品' })
-      }
-    },
-    showItemDetail () {
-      if (this.selectedCartIndex >= 0 && this.cart[this.selectedCartIndex]) {
-        this.openItemDialog(this.selectedCartIndex)
-      } else {
-        this.$message({ type: 'warning', message: '請先點選清單中的菜品' })
-      }
-    },
     confirmCancel () {
       if (this.cancelDialog.index === -1) this.confirmCancelAllSent()
       else if (this.cancelDialog.batchItems) this.confirmCancelBatchSent()
@@ -6059,8 +6453,10 @@ export default {
         categoryName: i.categoryName || '',
         categoryCode: i.categoryCode || '',
         plu: i.plu || '',
+        code: i.code || '',
         categoryId: i.categoryId || '',
         bundleGroupId: i.bundleGroupId || '',
+        mainGroupId: i.mainGroupId || '',
         mods: i.mods || [],
         discount: i.discount,
         free: i.free,
@@ -6071,6 +6467,7 @@ export default {
         comboId: i.comboId,
         comboName: i.comboName,
         comboSnapshot: i.comboSnapshot,
+        noPrintComboName: !!i.noPrintComboName,
         departmentSplit: i.departmentSplit || [],
         showItems: i.showItems !== false,
         dishStatus: i.dishStatus || ''
@@ -6125,6 +6522,12 @@ export default {
           return this.loadUnfinished()
         })
         .then(() => {
+          // 外賣/外賣枱浮動單：送單後把 currentOrder 指向剛建立的訂單，讓單據編號持續顯示
+          if (!this.isDineIn) {
+            const created = this.pendingOrderNo ? this.unfinishedOrders.find(o => String(o.orderNo) === String(this.pendingOrderNo)) : null
+            this.viewingFloatingOrder = created || null
+            this.pendingOrderNo = null
+          }
           if (navigate) {
             const deskNo = this.selectedTable
             this.view = 'board'
@@ -6184,6 +6587,20 @@ export default {
         this.failoverNotice.show = false
       }, 8000)
     },
+    showPrintBlockedNotice (payload) {
+      const p = payload || {}
+      this.blockedNotice = {
+        show: true,
+        station: p.station || '',
+        reason: p.reason || '未送出',
+        deskNo: p.deskNo || '',
+        orderNo: p.orderNo || ''
+      }
+      if (this.blockedTimer) clearTimeout(this.blockedTimer)
+      this.blockedTimer = setTimeout(() => {
+        this.blockedNotice.show = false
+      }, 8000)
+    },
     updateWindowSize () {
       const sw = window.innerWidth || 0
       const sh = window.innerHeight || 0
@@ -6211,7 +6628,8 @@ export default {
       this.loadPosSetting()
     },
     tableUpdate () {
-      this.loadTables().then(() => this.syncOpenTableCart())
+      this.loadTables()
+      this.loadUnfinished().then(() => this.syncOpenTableCart())
     },
     zoneChanged () {
       this.loadZones()
@@ -6224,6 +6642,9 @@ export default {
     },
     printerFailover (payload) {
       this.showFailoverNotice(payload)
+    },
+    printBlocked (payload) {
+      this.showPrintBlockedNotice(payload)
     }
   },
   created () {
@@ -6241,6 +6662,7 @@ export default {
     this.loadHolds()
     this.loadShiftStatus()
     this.loadDepartments()
+    document.addEventListener('keydown', this.handleHardwarePluKeydown)
   },
   mounted () {
     this.setupFoodObserver()
@@ -6249,7 +6671,9 @@ export default {
   beforeDestroy () {
     if (this.timeTimer) clearInterval(this.timeTimer)
     if (this.failoverTimer) clearTimeout(this.failoverTimer)
+    if (this.blockedTimer) clearTimeout(this.blockedTimer)
     window.removeEventListener('resize', this.updateWindowSize)
+    document.removeEventListener('keydown', this.handleHardwarePluKeydown)
     if (this._foodObserver) { this._foodObserver.disconnect(); this._foodObserver = null }
     if (this._floorObserver) { this._floorObserver.disconnect(); this._floorObserver = null }
     if (this._posFontStyle) { this._posFontStyle.remove(); this._posFontStyle = null }
@@ -6262,6 +6686,7 @@ export default {
 <style scoped>
 .pos-viewport{ width: 100%; height: 100%; overflow: hidden; position: relative; background: #f3f6fb; }
 .failover-banner{ position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; background: rgba(0,0,0,0.88); border: 3px solid #ff4d4f; border-radius: 14px; padding: 12px 30px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,0.35); pointer-events: none; white-space: nowrap; }
+.blocked-banner{ top: 104px; }
 .failover-title{ font-size: 16px; font-weight: 700; color: #ffd04d; letter-spacing: 2px; }
 .failover-main{ font-size: 42px; font-weight: 800; line-height: 1.25; animation: failover-flash 0.6s infinite alternate; }
 .failover-sub{ font-size: 20px; font-weight: 700; color: #ffffff; margin-top: 2px; }
@@ -6426,9 +6851,15 @@ export default {
 .classic-sub{ background: #e0e7ff; color: #4338ca; }
 /* 頂欄重新編排：返回枱號/項目取消（左欄）＋模式/項目明細（左二欄）＋單據編號跨三欄＋枱號/入單員工/人數 */
 .ot-grid{ display: grid; grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr 1fr; gap: 6px; width: 100%; align-items: stretch; }
-.ot-back{ grid-row: 1; grid-column: 1; align-self: stretch; height: 100%; display: inline-flex; align-items: center; justify-content: flex-start; white-space: nowrap; }
-.ot-cancel-item{ grid-row: 2; grid-column: 1; align-self: stretch; height: 100%; display: inline-flex; align-items: center; justify-content: flex-start; white-space: nowrap; }
-.ot-item-detail{ grid-row: 2; grid-column: 2; align-self: stretch; height: 100%; display: inline-flex; align-items: center; justify-content: flex-start; white-space: nowrap; }
+.ot-back,
+.ot-cancel-item,
+.ot-item-detail{ align-self: stretch; height: 100%; display: inline-flex; align-items: center; white-space: nowrap; margin-left: 0; }
+.ot-back,
+.ot-cancel-item{ min-width: 96px; min-height: 44px; padding: 0 16px; justify-content: center; gap: 6px; }
+.ot-back{ grid-row: 1; grid-column: 1; }
+.ot-cancel-item{ grid-row: 2; grid-column: 1; background: rgba(239, 68, 68, .72); border-color: transparent; }
+.ot-cancel-item:hover{ background: rgba(239, 68, 68, .9); color: #fff; }
+.ot-item-detail{ grid-row: 2; grid-column: 2; min-height: 44px; justify-content: flex-start; }
 .ot-cell{ display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; min-width: 0; }
 .ot-mode-cell{ grid-row: 1; grid-column: 2; }
 .ot-orderno-cell{ grid-row: 1; grid-column: 3 / 6; }
@@ -6437,7 +6868,7 @@ export default {
 .ot-pax-cell{ grid-row: 2; grid-column: 5; }
 .ot-table-cell .ot-big-num,
 .ot-pax-cell .ot-big-num,
-.ot-staff-cell .ot-big-num{ min-width: 0; padding: 4px 8px; }
+.ot-staff-cell .ot-big-num{ min-width: 0; padding: 4px 8px; min-height: 42px; align-items: center; }
 .ot-mode-label{ cursor: default; }
 .ot-order-no{ font-size: 16px; letter-spacing: .5px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 42px; align-items: center; }
 .ot-staff-name{ font-size: 15px; font-weight: 800; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 42px; align-items: center; }
@@ -6604,7 +7035,10 @@ export default {
 .food-btn{ position: relative; min-height: var(--food-h, var(--food-minh, 88px)); border: 1.5px solid rgba(148,163,184,.25); border-radius: 10px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: transform .2s cubic-bezier(.4,0,.2,1), box-shadow .2s cubic-bezier(.4,0,.2,1); -webkit-tap-highlight-color: transparent; padding: var(--food-pad-y, 6px) var(--food-pad-x, 3px); overflow: hidden; box-shadow: 0 2px 8px rgba(36,61,91,.06); }
 .food-btn:active{ transform: scale(.97); box-shadow: 0 1px 4px rgba(64,158,255,.15); }
 .food-btn:hover{ transform: translateY(-6px) scale(1.02); box-shadow: 0 16px 32px rgba(36,61,91,.18); border-color: rgba(64,158,255,.4); z-index: 2; }
-.food-btn.food-soldout{ opacity: 0.45; background: #f5f7fa; box-shadow: none; }
+.food-btn.food-soldout{ background: #f5f7fa; box-shadow: none; }
+.food-btn.food-soldout .food-text,
+.food-btn.food-soldout .food-img{ opacity: 0.35; }
+.food-soldout-cross{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 64px; font-weight: 900; color: #f01414; line-height: 1; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.12); z-index: 1; }
 .food-btn.cat-tile{ justify-content: center; }
 .food-btn.cat-tile:hover{ border-color: rgba(255,255,255,.6); }
 .cat-tile-name{ color: inherit; }
@@ -6783,6 +7217,19 @@ export default {
 .mandatory-big{ font-size:120px; font-weight:900; color:#f56c6c; line-height:1.15; letter-spacing:10px; text-align:center; }
 .mandatory-alert .el-message-box__btns .el-button{ font-size:24px; padding:14px 44px; border-radius:12px; background:#f56c6c; border-color:#f56c6c; color:#fff; }
 .mandatory-alert .el-message-box__btns .el-button:hover{ background:#e64545; border-color:#e64545; color:#fff; }
+.back-to-board-alert{ width:480px; border-radius:18px; padding:8px; box-shadow:0 12px 40px rgba(0,0,0,.28); overflow:hidden; }
+.back-to-board-alert .el-message-box__header{ padding:22px 24px 0; }
+.back-to-board-alert .el-message-box__title{ font-size:22px; font-weight:800; color:#f56c6c; letter-spacing:1px; }
+.back-to-board-alert .el-message-box__content{ padding:18px 24px 4px; }
+.back-to-board-alert .el-message-box__message{ font-size:18px; color:#1f2937; line-height:1.6; }
+.back-to-board-alert .el-message-box__message p{ margin:0; }
+.back-to-board-alert .el-message-box__status.el-icon-warning{ font-size:30px !important; top:50%; transform:translateY(-50%); }
+.back-to-board-alert .el-message-box__btns{ padding:8px 24px 22px; }
+.back-to-board-alert .el-message-box__btns .el-button{ font-size:17px; padding:11px 32px; border-radius:12px; font-weight:700; }
+.back-to-board-alert .el-message-box__btns .el-button--primary{ background:linear-gradient(135deg,#f56c6c,#e64545); border-color:#e64545; }
+.back-to-board-alert .el-message-box__btns .el-button--primary:hover{ background:linear-gradient(135deg,#e64545,#d13838); border-color:#d13838; color:#fff; }
+.back-to-board-alert .el-message-box__btns .el-button--default{ background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+.back-to-board-alert .el-message-box__btns .el-button--default:hover{ background:#e2e8f0; border-color:#cbd5e1; color:#1e293b; }
 .plu-drawer .el-drawer__body{ display:flex; flex-direction:column; }
 .plu-drawer .number-pad{ flex:1; width:100%; }
 .plu-fn-keys{ display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:12px; }
@@ -6795,6 +7242,10 @@ export default {
 .plu-fn-exit{ width:100%; height:64px; margin-top:12px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:900; letter-spacing:6px; color:#fff; cursor:pointer; user-select:none; background:linear-gradient(135deg, #f56c6c, #e64545); box-shadow:0 4px 14px rgba(245,108,108,.4); transition:all .12s; }
 .plu-fn-exit:hover{ transform:translateY(-1px); box-shadow:0 6px 20px rgba(245,108,108,.55); }
 .plu-fn-exit:active{ transform:scale(.97); box-shadow:0 2px 6px rgba(245,108,108,.35); }
+.hw-plu-hint{ position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:3000; display:flex; align-items:center; gap:10px; background:rgba(31,42,63,.95); color:#fff; padding:10px 18px; border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,.35); font-size:16px; }
+.hw-plu-label{ color:#94a3b8; letter-spacing:2px; font-weight:600; }
+.hw-plu-value{ font-size:28px; font-weight:900; letter-spacing:2px; color:#ffd04d; }
+.hw-plu-help{ color:#cbd5e1; font-size:12px; }
 .share-table-dialog{ border-radius:14px; }
 .share-table-dialog .el-dialog__header{ display:none; }
 .share-table-dialog .el-dialog__body{ padding:20px; }
@@ -6874,6 +7325,14 @@ export default {
 /* 非現金提示 */
 .pay-noncash-hint{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#909399; font-size:14px; }
 .pay-noncash-icon{ font-size:48px; color:#67c23a; margin-bottom:12px; }
+
+/* 小費（僅信用卡） */
+.pay-tip-section{ margin-bottom:14px; padding:14px; border:1.5px solid #e5eaf2; border-radius:12px; background:#fafbfd; }
+.pay-tip-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.pay-tip-label{ font-size:15px; font-weight:700; color:#303133; white-space:nowrap; }
+.pay-tip-input-wrap{ flex:1; display:flex; align-items:center; border:1.5px solid #dcdfe6; border-radius:8px; padding:0 10px; background:#fff; }
+.pay-tip-dollar{ font-size:18px; font-weight:700; color:#909399; margin-right:6px; }
+.pay-tip-input{ flex:1; border:none; outline:none; padding:10px 0; font-size:18px; font-weight:700; color:#303133; background:transparent; }
 
 /* 操作按鈕 */
 .pay-actions{ display:flex; gap:12px; margin-top:auto; padding-top:14px; border-top:1px solid #e5eaf2; }

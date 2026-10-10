@@ -17,6 +17,21 @@ const ModCodeCategorySchema = new Schema({
     type: Boolean,
     default: false
   },
+  // 最少可選數量（0=不限）
+  minSelect: {
+    type: Number,
+    default: 0
+  },
+  // 最多可選數量（0=不限）
+  maxSelect: {
+    type: Number,
+    default: 0
+  },
+  // 指定自動彈出的貨品（空=所有引用此類別的貨品）
+  commodityIds: {
+    type: Array,
+    default: []
+  },
   sort: {
     type: Number,
     default: 0

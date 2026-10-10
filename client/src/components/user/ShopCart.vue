@@ -2,7 +2,7 @@
     <div>
         <div class="sent-panel" v-show="showSentPanel">
                 <div class="sent-header">
-                    <span class="sent-title">已送品項</span>
+                    <span class="sent-title">已點食品</span>
                     <div class="sent-header-right">
                         <span class="sent-total">小計 ${{ sentTotal }}</span>
                         <span class="sent-close" @click="closeSentPanel"><i class="el-icon-close"></i></span>
@@ -21,7 +21,7 @@
                     </div>
                 </div>
             </div>
-            <div class="shopcart">
+            <div class="shopcart" v-show="!hidden">
             <div class="contents">
                 <div class="content-left" @click="toggleList">
                     <div class="logo-wrapper">
@@ -58,7 +58,8 @@
                         <ul>
                             <li class="food" v-for="(food,index) in selectFoods" :key="index">
                                 <span class="name">{{food.name}}</span>
-                                <span class="mods" v-if="food.mods && food.mods.length">改碼：{{ food.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}</span>
+                                <span class="mods" v-if="food.mods && food.mods.length">改碼：{{ food.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}<span class="mods-edit" @click.stop="editMods(food)">修改</span></span>
+                                <span class="mods" v-else-if="food.isCombo"><span class="mods-edit" @click.stop="editMods(food)">修改</span></span>
                                 <div class="price">
                                     <span>${{ displayFoodSubtotal(food, index) }}</span>
                                 </div>
@@ -74,7 +75,7 @@
         <transition name="fade">
             <div class="list-mask" v-show="listShow" @click="hideList"></div>
         </transition>
-        <Confirm ref="confirm" @clear="empty" :orderData="orderData" :show-images="showImages" :show-discount="showDiscount" :service-charge-enabled="serviceChargeEnabled" :service-charge-rate="serviceChargeRate" @viewOrder="showSent" @closeSent="closeSentPanel"></Confirm>
+        <Confirm ref="confirm" @clear="empty" :orderData="orderData" :show-images="showImages" :show-discount="showDiscount" :service-charge-enabled="serviceChargeEnabled" :service-charge-rate="serviceChargeRate" :sent-items="sentItems" @viewOrder="showSent" @closeSent="closeSentPanel" @edit-mods="editModsFromConfirm"></Confirm>
     </div>
 </template>
 
@@ -108,6 +109,10 @@ export default {
     priceOverride: {
       type: Object,
       default: null
+    },
+    hidden: {
+      type: Boolean,
+      default: false
     },
     showImages: {
       type: Boolean,
@@ -214,7 +219,7 @@ export default {
       const remaining = total - bundled
       const modsExtra = this.modsExtraOf(food)
       const unitBundle = Math.round((o.price + modsExtra) * 100) / 100
-      const unitFull = Math.round(((food.price || 0) + modsExtra) * 100) / 100
+      const unitFull = Math.round((food.price || 0) * 100) / 100
       return Math.round((bundled * unitBundle + remaining * unitFull) * 100) / 100
     },
     toggleList () {
@@ -240,6 +245,13 @@ export default {
     showSent () {
       this.showSentPanel = true
       this.$emit('sent-panel-toggle', true)
+    },
+    editMods (food) {
+      this.$emit('edit-mods', food)
+    },
+    editModsFromConfirm (item) {
+      this.$refs.confirm.hide()
+      this.$emit('edit-mods', item)
     },
     pay () {
       if (this.totalPrice <= 0) {
@@ -290,9 +302,9 @@ export default {
         gap: 12px;
     }
     .sent-title{
-        font-size: 13px;
+        font-size: 32.5px;
         font-weight: 700;
-        color: #1e293b;
+        color: var(--accent);
     }
     .sent-total{
         font-size: 14px;
@@ -453,30 +465,31 @@ export default {
     }
     .contents > .content-view{
         display: flex;
-        align-items: center;
+        align-items: stretch;
         cursor: pointer;
     }
     .view-order-btn{
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 4px;
-        padding: 6px 12px;
-        margin: 8px 0;
-        border-radius: 20px;
-        background: #f0f2f5;
-        color: #64748b;
-        font-size: 12px;
+        height: 50px;
+        line-height: 50px;
+        padding: 0 14px;
+        background: linear-gradient(135deg, var(--primary), var(--primary2));
+        color: #fff;
+        font-size: 13px;
         font-weight: 600;
+        letter-spacing: 0.5px;
+        box-shadow: 0 2px 8px var(--primary-glow);
         transition: all 0.25s ease;
         white-space: nowrap;
     }
     .view-order-btn:active{
-        background: #e2e8f0;
+        opacity: 0.85;
     }
     .view-order-btn.active{
-        background: linear-gradient(135deg, var(--primary), var(--primary2));
-        color: #fff;
-        box-shadow: 0 2px 8px var(--primary-glow);
+        box-shadow: 0 0 0 2px var(--accent), 0 2px 10px var(--primary-glow);
     }
     .view-order-btn > i{
         font-size: 14px;
@@ -575,8 +588,11 @@ export default {
     .shopcart > .shopcart-list > .list-header > .back > .el-icon-arrow-left{
         display: block;
         padding: 10px 14px;
-        font-size: 18px;
-        color: #1e293b;
+        font-size: 22px;
+        color: #fff;
+        background: var(--accent);
+        border-radius: 0 20px 20px 0;
+        box-shadow: 0 2px 10px var(--accent-glow);
         cursor: pointer;
     }
     .shopcart > .shopcart-list > .list-header > .title{
@@ -626,6 +642,14 @@ export default {
         line-height: 18px;
         font-size: 12px;
         color: var(--accent);
+    }
+    .shopcart > .shopcart-list > .list-content  .food > .mods > .mods-edit{
+        margin-left: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--primary);
+        text-decoration: underline;
+        cursor: pointer;
     }
     .shopcart > .shopcart-list > .list-content  .food > .price{
         position: absolute;

@@ -51,6 +51,11 @@ const ModCodeSchema = new Schema({
     type: String,
     default: ''
   },
+  // 沽清（售罄）：POS 長按改碼可沽清/重售
+  soldOut: {
+    type: Boolean,
+    default: false
+  },
   // POS 實體鍵盤快捷鍵（如「走青」= Q）
   quickKey: {
     type: String,

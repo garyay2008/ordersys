@@ -9,7 +9,7 @@
               <el-form-item label="標題">
                 <el-input v-model="format[activeTab].title" placeholder="小票標題"></el-input>
               </el-form-item>
-              <el-form-item label="改碼字號" v-if="activeTab !== 'qrcode' && activeTab !== 'tableqr'">
+              <el-form-item label="改碼字號" v-if="activeTab !== 'qrcode' && activeTab !== 'tableqr' && activeTab !== 'cancelitem'">
                 <el-select v-model="format[activeTab].fields.mods.size" style="width: 120px;">
                   <el-option label="正常" :value="1"></el-option>
                   <el-option label="大" :value="2"></el-option>
@@ -19,6 +19,16 @@
                   <el-option label="極大" :value="6"></el-option>
                 </el-select>
                 <span style="margin-left: 8px; font-size: 12px; color: #909399;">改碼（口味備註）印在小票上的字號</span>
+              </el-form-item>
+              <el-form-item label="二維碼大小" v-if="activeTab === 'tableqr' || activeTab === 'qrcode'">
+                <el-select v-model="format[activeTab].fields.qr.size" style="width: 120px;">
+                  <el-option label="小" :value="1"></el-option>
+                  <el-option label="正常" :value="2"></el-option>
+                  <el-option label="中" :value="3"></el-option>
+                  <el-option label="大" :value="4"></el-option>
+                  <el-option label="特大" :value="5"></el-option>
+                </el-select>
+                <span style="margin-left: 8px; font-size: 12px; color: #909399;">點餐碼二維碼尺寸</span>
               </el-form-item>
               <div class="field-head">
                 <span class="fh-show">顯示</span>
@@ -75,6 +85,23 @@
                   <div class="fd-ops">
                     <el-button size="mini" type="danger" icon="el-icon-delete" title="刪除自定義文字" @click="removeCustom(line.key)"></el-button>
                   </div>
+                </div>
+
+                <!-- 條碼欄位（開關 + 尺寸，固定印於大台號上方） -->
+                <div v-else-if="line.key === 'barcode'" class="field-row">
+                  <el-switch v-model="format[activeTab].fields[line.key].show"></el-switch>
+                  <span class="fd-label">{{ line.label }}</span>
+                  <el-select v-model="format[activeTab].fields[line.key].size" size="mini" class="fd-size">
+                    <el-option label="正常" :value="1"></el-option>
+                    <el-option label="中" :value="2"></el-option>
+                    <el-option label="大" :value="3"></el-option>
+                  </el-select>
+                  <span class="fd-barcode-hint">掃描後跳到該枱號（熱敏）</span>
+                  <el-button-group class="fd-order">
+                    <el-button size="mini" icon="el-icon-arrow-up" :disabled="li === 0" @click="moveLine(li, -1)"></el-button>
+                    <el-button size="mini" icon="el-icon-arrow-down" :disabled="li === orderedLines.length - 1" @click="moveLine(li, 1)"></el-button>
+                  </el-button-group>
+                  <div class="fd-ops"></div>
                 </div>
 
                 <!-- 單一欄位 -->
@@ -156,6 +183,10 @@
               <span>拖曳 ⠿ 調整上下排序；拖曳欄位到其他欄位可合併為同列分組；點擊欄位顯示工具列。</span>
             </div>
             <div class="ticket-preview" @dragover.prevent @drop.prevent.stop="onRootDrop">
+              <div v-if="barcodePreview" class="preview-barcode" :class="'barcode-s' + barcodePreview.size">
+                <div class="preview-barcode-label">條碼（掃描枱號）</div>
+                <div class="preview-barcode-bars"></div>
+              </div>
               <div v-if="deskNoBigPreview" class="preview-block field" @click.stop>
                 <div class="block-body">
                   <div class="ticket-line" :class="deskNoBigPreview.cls">{{ deskNoBigPreview.text }}</div>
@@ -303,6 +334,8 @@ export default {
             { key: 'sendWaiter', label: '送單員工' },
             { key: 'people', label: '人數' },
             { key: 'station', label: '檔口' },
+            { key: 'orderNoStation', label: '單號＋檔口' },
+            { key: 'dateSendTimeWaiter', label: '日期＋送單時間＋送單員工' },
             { key: 'items', label: '菜品明細' },
             { key: 'items2', label: '菜品明細2' },
             { key: 'items3', label: '菜品明細3' },
@@ -369,6 +402,7 @@ export default {
             { key: 'address', label: '地址' },
             { key: 'phone', label: '電話' },
             { key: 'deskNo', label: '台號' },
+            { key: 'barcode', label: '條碼（掃描枱號）' },
             { key: 'deskNoBig', label: '大台號' },
             { key: 'orderNo', label: '訂單號' },
             { key: 'reprint', label: '重印' },
@@ -440,6 +474,20 @@ export default {
             { key: 'waiter', label: '開單員工' },
             { key: 'time', label: '開單時間' }
           ]
+        },
+        {
+          key: 'cancelitem',
+          label: '取消項目小票',
+          fields: [
+            { key: 'title', label: '標題' },
+            { key: 'shopName', label: '餐廳名稱' },
+            { key: 'deskNo', label: '台號' },
+            { key: 'orderNo', label: '訂單號' },
+            { key: 'waiter', label: '開單員工' },
+            { key: 'items', label: '取消項目' },
+            { key: 'reason', label: '原因' },
+            { key: 'time', label: '取消時間' }
+          ]
         }
       ]
     }
@@ -459,6 +507,15 @@ export default {
     },
     showDeskNoBigTop () {
       return this.activeTab === 'print'
+    },
+    barcodePreview () {
+      if (this.activeTab !== 'print') return null
+      const fmt = this.format.print || {}
+      const fields = fmt.fields || {}
+      const f = fields.barcode || { show: false }
+      if (f.show === false) return null
+      const sz = Math.min(3, Math.max(1, f.size || 1))
+      return { size: sz }
     },
     deskNoBigPreview () {
       if (!this.showDeskNoBigTop) return null
@@ -531,6 +588,8 @@ export default {
           waiter: '開單員工：張小明',
           sendWaiter: '送單員工：張小明',
           station: '【檔口】',
+          orderNoStation: '單號 10000001 檔口 火位',
+          dateSendTimeWaiter: '2026-10-10 13:05:56 admin',
           people: '人數：4',
           date: '日期：2026-08-19',
           items: '宮保雞丁  x2',
@@ -542,8 +601,9 @@ export default {
           payMethod: '收款方式：現金',
           remark: '備註：不要辣',
           message: '5 號枱加單一碗白飯',
+          reason: '原因：顧客取消',
           hint: '請用手機相機掃描下單',
-          time: (tab.key === 'serving' || tab.key === 'receipt' || tab.key === 'print') ? '開單時間：23:59' : (tab.key === 'qrcode' ? '開單時間：2026-08-26 23:59:59' : '開單時間：08-26 23:59'),
+          time: (tab.key === 'cancelitem') ? '取消時間：23:59' : ((tab.key === 'serving' || tab.key === 'receipt' || tab.key === 'print') ? '開單時間：23:59' : (tab.key === 'qrcode' ? '開單時間：2026-08-26 23:59:59' : '開單時間：08-26 23:59')),
           sendTime: '送單時間：13:05:22',
           footer: this.footer || '謝謝惠顧，歡迎再次光臨'
         }
@@ -556,7 +616,7 @@ export default {
       for (let i = 0; i < order.length; i++) {
         const line = order[i]
         // 印單小票的「大台號」固定顯示在最左上角（Logo 之上），預覽時於上方單獨渲染，此處跳過避免重複
-        if (this.activeTab === 'print' && line.key === 'deskNoBig') continue
+        if (this.activeTab === 'print' && (line.key === 'deskNoBig' || line.key === 'barcode')) continue
         if (line.isDivider) {
           const opt = fields[line.key] || { show: true, type: '-' }
           if (opt.show === false) continue
@@ -590,16 +650,32 @@ export default {
           if (tab.key === 'print' || tab.key === 'receipt') {
             texts.push({ cells: [{ text: '宮保雞丁', align: 'left' }, { text: '2', align: 'center' }, { text: '$76.00', align: 'right' }], cls: cls('items') })
             texts.push({ cells: [{ text: '魚香肉絲', align: 'left' }, { text: '1', align: 'center' }, { text: '$44.00', align: 'right' }], cls: cls('items') })
+          } else if (tab.key === 'cancelitem') {
+            texts.push({ text: '宮保雞丁  x2  23:59', cls: cls('items') })
+            texts.push({ text: '魚香肉絲  x1  23:59', cls: cls('items') })
+          } else if (tab.key === 'kitchen') {
+            texts.push({ text: 'x2  宮保雞丁', cls: cls('items') })
+            texts.push({ text: 'x1  魚香肉絲', cls: cls('items') })
           } else {
             texts.push({ text: '宮保雞丁  x2', cls: cls('items') })
             texts.push({ text: '魚香肉絲  x1', cls: cls('items') })
           }
         } else if (key === 'items2') {
-          texts.push({ cells: [{ text: '宮保雞丁  x2', align: 'left' }, { text: '13:05:22', align: 'right' }], cls: cls('items2') })
-          texts.push({ cells: [{ text: '魚香肉絲  x1', align: 'left' }, { text: '13:06:10', align: 'right' }], cls: cls('items2') })
+          if (tab.key === 'kitchen') {
+            texts.push({ cells: [{ text: 'x2  宮保雞丁', align: 'left' }, { text: '13:05:22', align: 'right' }], cls: cls('items2') })
+            texts.push({ cells: [{ text: 'x1  魚香肉絲', align: 'left' }, { text: '13:06:10', align: 'right' }], cls: cls('items2') })
+          } else {
+            texts.push({ cells: [{ text: '宮保雞丁  x2', align: 'left' }, { text: '13:05:22', align: 'right' }], cls: cls('items2') })
+            texts.push({ cells: [{ text: '魚香肉絲  x1', align: 'left' }, { text: '13:06:10', align: 'right' }], cls: cls('items2') })
+          }
         } else if (key === 'items3') {
-          texts.push({ cells: [{ text: '宮保雞丁  x2', align: 'left' }, { text: '$76.00', align: 'right' }], cls: cls('items3') })
-          texts.push({ cells: [{ text: '魚香肉絲  x1', align: 'left' }, { text: '$44.00', align: 'right' }], cls: cls('items3') })
+          if (tab.key === 'kitchen') {
+            texts.push({ text: 'x2  宮保雞丁  $76.00', cls: cls('items3') })
+            texts.push({ text: 'x1  魚香肉絲  $44.00', cls: cls('items3') })
+          } else {
+            texts.push({ cells: [{ text: '宮保雞丁  x2', align: 'left' }, { text: '$76.00', align: 'right' }], cls: cls('items3') })
+            texts.push({ cells: [{ text: '魚香肉絲  x1', align: 'left' }, { text: '$44.00', align: 'right' }], cls: cls('items3') })
+          }
         } else if (this.isCustomKey(key)) {
           texts.push({ text: (f(key).text || ''), cls: cls(key) })
         } else {
@@ -652,7 +728,7 @@ export default {
       return !!(key && key.indexOf('custom') === 0)
     },
     isGroupableKey (key) {
-      return !!key && key.indexOf('divider') !== 0 && key.indexOf('custom') !== 0 && key !== 'items' && key !== 'items2' && key !== 'qr'
+      return !!key && key.indexOf('divider') !== 0 && key.indexOf('custom') !== 0 && key !== 'items' && key !== 'items2' && key !== 'qr' && key !== 'barcode'
     },
     canGroup (li) {
       if (li <= 0) return false
@@ -913,6 +989,7 @@ export default {
 .fd-order{ flex: 0 0 74px; }
 .fd-ops{ flex: 0 0 96px; display: flex; gap: 4px; justify-content: center; }
 .fd-text{ flex: 1; }
+.fd-barcode-hint{ flex: 1; font-size: 12px; color: #909399; }
 .add-divider-row{ margin-top: 2px; padding-left: 48px; display: flex; gap: 8px; }
 
 .group-box{ margin-bottom: 8px; border: 1px solid #d9ecff; border-left: 3px solid #409eff; border-radius: 4px; background: #f5faff; padding: 6px 8px; }
@@ -989,6 +1066,25 @@ export default {
   text-align: center;
   margin-bottom: 10px;
 }
+.preview-barcode{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 4px 0 6px;
+}
+.preview-barcode-label{
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 3px;
+}
+.preview-barcode-bars{
+  height: 44px;
+  width: 220px;
+  background: repeating-linear-gradient(90deg, #1e293b 0 2px, transparent 2px 4px, #1e293b 4px 7px, transparent 7px 9px, #1e293b 9px 10px, transparent 10px 14px);
+}
+.preview-barcode.barcode-s1 .preview-barcode-bars{ height: 36px; }
+.preview-barcode.barcode-s2 .preview-barcode-bars{ height: 48px; }
+.preview-barcode.barcode-s3 .preview-barcode-bars{ height: 60px; }
 .preview-logo{
   display: flex;
   justify-content: center;

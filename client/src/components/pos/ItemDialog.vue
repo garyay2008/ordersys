@@ -9,6 +9,7 @@
       <div class="mod-group-name" @click="toggleGroup(gi)">
         <span class="arrow" :class="{open: isOpen(gi)}">▸</span>
         <span class="mod-group-title">{{ group.name }}</span>
+        <span v-if="group.minSelect > 0 || group.maxSelect > 0" class="range-hint">{{ rangeText(group) }}</span>
         <span class="cnt">{{ group.items.length }}</span>
         <i v-if="hasMandatory(group)" class="req-badge">必</i>
       </div>
@@ -77,10 +78,29 @@ export default {
     hasMandatory (group) {
       return (group.items || []).some(m => m.mandatory)
     },
+    rangeText (group) {
+      const min = group.minSelect || 0
+      const max = group.maxSelect || 0
+      if (min > 0 && max > 0) return `最少${min} 最多${max}`
+      if (min > 0) return `最少${min}`
+      if (max > 0) return `最多${max}`
+      return ''
+    },
+    groupCount (group) {
+      return this.mods.filter(m => m && m.id && (group.items || []).some(it => it._id === m.id)).length
+    },
     toggleMod (m) {
       const idx = this.mods.findIndex(x => x && (x.id || x.name) === m._id)
-      if (idx >= 0) this.mods.splice(idx, 1)
-      else this.mods.push({ id: m._id, name: m.name, price: m.price || 0, station: m.station || '' })
+      if (idx >= 0) {
+        this.mods.splice(idx, 1)
+      } else {
+        const group = this.modGroups.find(g => (g.items || []).some(it => it._id === m._id))
+        if (group && group.maxSelect > 0 && this.groupCount(group) >= group.maxSelect) {
+          this.$message({ type: 'warning', message: `「${group.name}」最多可選 ${group.maxSelect} 項` })
+          return
+        }
+        this.mods.push({ id: m._id, name: m.name, price: m.price || 0, station: m.station || '' })
+      }
       this.emitChange()
     },
     addCustomMod () {
@@ -100,6 +120,20 @@ export default {
       this.$emit('change', this.mods.slice())
     },
     confirm () {
+      for (const g of this.modGroups) {
+        const min = g.minSelect || 0
+        const max = g.maxSelect || 0
+        if (!min && !max) continue
+        const cnt = this.groupCount(g)
+        if (min > 0 && cnt < min) {
+          this.$message({ type: 'warning', message: `「${g.name}」最少需選 ${min} 項` })
+          return
+        }
+        if (max > 0 && cnt > max) {
+          this.$message({ type: 'warning', message: `「${g.name}」最多可選 ${max} 項` })
+          return
+        }
+      }
       this.$emit('confirm', this.mods.slice())
     },
     cancel () {
@@ -122,6 +156,7 @@ export default {
 .mod-group-name .arrow{ display: inline-block; width: 12px; font-size: 12px; color: #909399; transition: transform .12s ease; }
 .mod-group-name .arrow.open{ transform: rotate(90deg); }
 .mod-group-title{ font-weight: 500; }
+.mod-group-name .range-hint{ padding: 0 6px; border-radius: 3px; background: #e6a23c; color: #fff; font-size: 11px; line-height: 16px; }
 .mod-group-name .cnt{ margin-left: auto; padding: 0 7px; border-radius: 9px; background: #eef1f6; color: #909399; font-size: 11px; line-height: 18px; }
 .req-badge{ display: inline-block; padding: 0 5px; border-radius: 3px; background: #f56c6c; color: #fff; font-size: 11px; font-style: normal; line-height: 16px; }
 .mod-group-body{ padding: 8px 10px 2px; }

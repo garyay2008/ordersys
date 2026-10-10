@@ -126,7 +126,6 @@ function startServer () {
     process.env.MONGO_URI = `mongodb://127.0.0.1:${mongoPort}/orderSYS`
   }
   process.env.JWT_SECRET = ensureSecret('jwt.secret')
-  process.env.LICENSE_SECRET = ensureSecret('license.secret')
   process.env.MACHINE_ID = ensureMachineId()
   process.env.PUBLIC_DIR = path.join(app.getPath('userData'), 'public')
   process.env.PORT = String(serverPort)

@@ -112,7 +112,6 @@
             </el-select>
             <el-input v-model="form.receipt.ip" placeholder="打印機 IP" size="small" style="width: 130px; margin-left: 6px;"></el-input>
             <el-input-number v-model="form.receipt.port" :min="1" :max="65535" size="small" controls-position="right" style="width: 110px; margin-left: 6px;"></el-input-number>
-            <el-input v-model="form.receipt.queue" placeholder="CUPS 佇列(可空)" size="small" style="width: 140px; margin-left: 6px;"></el-input>
             <el-switch v-model="form.receipt.cashDrawer" active-text="錢箱" size="small" style="margin-left: 6px;"></el-switch>
           </div>
           <div class="field-tip">結帳小票（兼錢箱）；留空 IP 沿用收銀臺印表機</div>
@@ -136,7 +135,6 @@
             </el-select>
             <el-input v-model="form.serving.ip" placeholder="打印機 IP" size="small" style="width: 130px; margin-left: 6px;"></el-input>
             <el-input-number v-model="form.serving.port" :min="1" :max="65535" size="small" controls-position="right" style="width: 110px; margin-left: 6px;"></el-input-number>
-            <el-input v-model="form.serving.queue" placeholder="CUPS 佇列(可空)" size="small" style="width: 140px; margin-left: 6px;"></el-input>
           </div>
           <div class="field-tip">上菜紙（傳菜）；留空 IP 沿用傳菜總檯印表機</div>
         </el-form-item>
@@ -159,7 +157,6 @@
             </el-select>
             <el-input v-model="form.print.ip" placeholder="打印機 IP" size="small" style="width: 130px; margin-left: 6px;"></el-input>
             <el-input-number v-model="form.print.port" :min="1" :max="65535" size="small" controls-position="right" style="width: 110px; margin-left: 6px;"></el-input-number>
-            <el-input v-model="form.print.queue" placeholder="CUPS 佇列(可空)" size="small" style="width: 140px; margin-left: 6px;"></el-input>
           </div>
           <div class="field-tip">印單功能鍵輸出；留空 IP 沿用收銀臺印表機（「中央埋單」另於打印機設置指定）</div>
         </el-form-item>
@@ -198,7 +195,7 @@ const PRINTER_MODELS = {
 }
 
 function defaultPrinter () {
-  return { ip: '', port: 9100, queue: '', tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1, cashDrawer: false }
+  return { ip: '', port: 9100, tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1, cashDrawer: false }
 }
 
 export default {

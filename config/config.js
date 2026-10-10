@@ -8,15 +8,9 @@ if (!secretKey) {
   console.warn('[Config] 使用開發用預設 JWT_SECRET，正式環境請務必設定 JWT_SECRET')
 }
 
-const licenseSecret = process.env.LICENSE_SECRET
-if (!licenseSecret && process.env.NODE_ENV === 'production') {
-  throw new Error('[Config] 缺少 LICENSE_SECRET 環境變數，拒絕在 production 啟動')
-}
-
 module.exports = {
   mongoURI: process.env.MONGO_URI || 'mongodb://localhost:27017/orderSYS',
   secretKey: secretKey || '0x3E5-dev-only',
-  licenseSecret: licenseSecret || secretKey || 'license-dev-only',
   // BullMQ 列印佇列使用的 Redis 連線（未設定時沿用 in-memory FIFO 佇列）
   redisURL: process.env.REDIS_URL || '',
   // 可寫資料目錄（上傳圖片/字型等）。桌面版指向 userData，伺服器版沿用專案根 public/

@@ -78,6 +78,14 @@
                 </el-switch>
                 <span class="channel-tip">開啟後此貨品為茶芥必選，結帳／印單需在單內</span>
             </el-form-item>
+            <el-form-item label="非營業商品" :label-width="formLabelWidth">
+                <el-switch
+                v-model="form.nonBusiness"
+                active-color="#13ce66"
+                inactive-color="#ff4949">
+                </el-switch>
+                <span class="channel-tip">開啟後不計入營業額，日結報表歸入「非營業項目金額」</span>
+            </el-form-item>
             <el-form-item label="POS 顯示" :label-width="formLabelWidth">
                 <el-switch v-model="form.showOnPos" active-color="#13ce66" inactive-color="#ff4949"></el-switch>
                 <span class="channel-tip">關閉後收銀版面不顯示（員工餐/私房菜專用）</span>

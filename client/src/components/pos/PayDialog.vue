@@ -81,6 +81,23 @@
           <div>確認後將以「{{ payDialog.method }}」結帳</div>
         </div>
 
+        <!-- 小費（僅信用卡） -->
+        <div v-if="isCreditCardMethod" class="pay-tip-section">
+          <div class="pay-tip-row">
+            <span class="pay-tip-label">小費</span>
+            <div class="pay-tip-input-wrap">
+              <span class="pay-tip-dollar">$</span>
+              <input class="pay-tip-input" type="number" min="0" step="0.01" v-model.number="payDialog.tip" placeholder="0" />
+            </div>
+          </div>
+          <div class="pay-quick-row">
+            <div class="pay-quick-btn" @click="payQuickTip(0)">無</div>
+            <div class="pay-quick-btn" @click="payQuickTip(10)">$10</div>
+            <div class="pay-quick-btn" @click="payQuickTip(20)">$20</div>
+            <div class="pay-quick-btn" @click="payQuickTip(50)">$50</div>
+          </div>
+        </div>
+
         <div v-if="currentOrder" class="pay-order-id">訂單 {{ currentOrder.orderNo }}</div>
 
         <!-- 操作按鈕 -->
@@ -115,6 +132,9 @@ export default {
     isCashMethod () {
       return /現金|cash/i.test(this.payDialog.method || '')
     },
+    isCreditCardMethod () {
+      return /visa|master|銀聯|中銀|信用卡|credit/i.test(this.payDialog.method || '')
+    },
     canConfirmPay () {
       if (!this.isCashMethod) return true
       const cash = Number(this.payDialog.cashStr || 0)
@@ -125,7 +145,7 @@ export default {
   methods: {
     payMethodIcon (method) {
       if (/現金|cash/i.test(method)) return 'el-icon-money'
-      if (/信用卡|credit|卡/i.test(method)) return 'el-icon-credit-card'
+      if (/visa|master|銀聯|中銀|信用卡|credit/i.test(method)) return 'el-icon-bank-card'
       if (/八達通|octopus/i.test(method)) return 'el-icon-mobile-phone'
       if (/微信|wechat/i.test(method)) return 'el-icon-chat-dot-round'
       if (/支付寶|alipay/i.test(method)) return 'el-icon-wallet'
@@ -155,6 +175,9 @@ export default {
     payQuickAmount (amount) {
       this.payDialog.cashStr = String(amount)
       this.calcChange()
+    },
+    payQuickTip (amount) {
+      this.payDialog.tip = amount
     }
   }
 }

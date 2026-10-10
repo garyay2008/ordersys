@@ -12,20 +12,12 @@
               <el-tag size="mini" :type="scope.row.enabled !== false ? 'success' : 'info'">{{ scope.row.enabled !== false ? '開' : '關' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column align="center" label="主食分類">
+          <el-table-column align="center" label="主菜組別">
             <template slot-scope="scope">
-              <template v-if="(scope.row.triggerCategoryIds || []).length">
-                <el-tag size="mini" v-for="(id, ii) in scope.row.triggerCategoryIds" :key="ii" style="margin: 1px;">{{ categoryName(id) }}</el-tag>
+              <template v-if="(scope.row.triggerGroupIds || []).length">
+                <el-tag size="mini" v-for="(id, ii) in scope.row.triggerGroupIds" :key="ii" style="margin: 1px;">{{ mainGroupName(id) }}</el-tag>
               </template>
               <span v-else style="color:#c0c4cc;">任意主食</span>
-            </template>
-          </el-table-column>
-          <el-table-column align="center" label="跟餐分類">
-            <template slot-scope="scope">
-              <template v-if="(scope.row.addonCategoryIds || []).length">
-                <el-tag size="mini" v-for="(id, ii) in scope.row.addonCategoryIds" :key="ii" style="margin: 1px;">{{ categoryName(id) }}</el-tag>
-              </template>
-              <span v-else style="color:#c0c4cc;">任意跟餐</span>
             </template>
           </el-table-column>
           <el-table-column align="center" label="跟餐組別">
@@ -74,16 +66,11 @@
         </el-row>
 
         <el-divider content-position="left">配對規則</el-divider>
-        <el-form-item label="主食分類">
-          <el-select v-model="form.triggerCategoryIds" multiple filterable placeholder="選擇主食分類（留空 = 任意主食）" style="width: 100%;">
-            <el-option v-for="c in categoryOptions" :key="c._id" :label="catLabel(c)" :value="c._id"></el-option>
+        <el-form-item label="主菜組別">
+          <el-select v-model="form.triggerGroupIds" multiple filterable clearable placeholder="選擇主菜組別（留空 = 任意主食）" style="width: 100%;">
+            <el-option v-for="g in mainGroups" :key="g._id" :label="g.name" :value="g._id"></el-option>
           </el-select>
-          <div class="hint">從這些分類揀選一個主食，搭配下方跟餐分類的一個跟餐，即自動撞餐。</div>
-        </el-form-item>
-        <el-form-item label="跟餐分類">
-          <el-select v-model="form.addonCategoryIds" multiple filterable placeholder="選擇跟餐分類（留空 = 任意跟餐）" style="width: 100%;">
-            <el-option v-for="c in categoryOptions" :key="c._id" :label="catLabel(c)" :value="c._id"></el-option>
-          </el-select>
+          <div class="hint">從這些主菜組別揀選一個主食，搭配下方跟餐組別的一個跟餐（或留空跟餐組別以任意跟餐 + 跟餐價），即自動撞餐。</div>
         </el-form-item>
         <el-form-item label="跟餐組別">
           <el-select v-model="form.bundleGroupIds" multiple filterable clearable placeholder="選擇跟餐組別（選了即以組別跟餐價為準）" style="width: 100%;">
@@ -139,7 +126,7 @@ export default {
       form: this.emptyForm(),
       tableData: [],
       tableHeight: window.innerHeight - 160,
-      categoryOptions: [],
+      mainGroups: [],
       bundleGroups: [],
       weekdayOptions: [
         { value: 1, label: '一' },
@@ -162,8 +149,7 @@ export default {
         name: '',
         enabled: true,
         priority: 0,
-        triggerCategoryIds: [],
-        addonCategoryIds: [],
+        triggerGroupIds: [],
         bundleGroupIds: [],
         addonPrice: 0,
         effectiveTime: { type: 'permanent', startDate: '', endDate: '', startTime: '', endTime: '', weekdays: [1, 2, 3, 4, 5], holidays: [] }
@@ -187,33 +173,26 @@ export default {
         .then(res => { this.tableData = res.data || [] })
         .catch(err => console.log(err))
     },
-    loadCategories () {
-      this.$axios.get('/api/category/all')
-        .then(res => { this.categoryOptions = res.data || [] })
-        .catch(err => console.log(err))
-    },
     loadBundleGroups () {
       this.$axios.get('/api/bundlegroup/list')
         .then(res => { this.bundleGroups = res.data || [] })
         .catch(err => console.log(err))
     },
-    catLabel (c) {
-      if (!c) return ''
-      const code = c.code ? String(c.code).trim() : ''
-      const name = c.cName || ''
-      if (code && name) return code + ' ' + name
-      return code || name || String(c._id || '')
-    },
-    categoryName (id) {
-      const c = this.categoryOptions.find(x => String(x._id) === String(id))
-      return c ? this.catLabel(c) : id
+    loadMainGroups () {
+      this.$axios.get('/api/maingroup/all')
+        .then(res => { this.mainGroups = res.data || [] })
+        .catch(err => console.log(err))
     },
     bundleGroupName (id) {
       const g = this.bundleGroups.find(x => String(x._id) === String(id))
       return g ? g.name : id
     },
+    mainGroupName (id) {
+      const g = this.mainGroups.find(x => String(x._id) === String(id))
+      return g ? g.name : id
+    },
     rowAddonPrice (row) {
-      const v = (row && row.addonPrice !== undefined) ? row.addonPrice : (row && row.combinedPrice)
+      const v = row ? row.addonPrice : 0
       return Number(v) || 0
     },
     etLabel (et) {
@@ -232,8 +211,7 @@ export default {
         name: row.name || '',
         enabled: row.enabled !== false,
         priority: row.priority || 0,
-        triggerCategoryIds: (row.triggerCategoryIds || []).slice(),
-        addonCategoryIds: (row.addonCategoryIds || []).slice(),
+        triggerGroupIds: (row.triggerGroupIds || []).slice(),
         bundleGroupIds: (row.bundleGroupIds || []).slice(),
         addonPrice: this.rowAddonPrice(row),
         effectiveTime: this.cloneEt(row.effectiveTime)
@@ -262,8 +240,7 @@ export default {
           name: this.form.name,
           enabled: this.form.enabled !== false,
           priority: Number(this.form.priority) || 0,
-          triggerCategoryIds: (this.form.triggerCategoryIds || []).filter(id => !!id),
-          addonCategoryIds: (this.form.addonCategoryIds || []).filter(id => !!id),
+          triggerGroupIds: (this.form.triggerGroupIds || []).filter(id => !!id),
           bundleGroupIds: (this.form.bundleGroupIds || []).filter(id => !!id),
           addonPrice: Number(this.form.addonPrice) || 0,
           effectiveTime: this.cloneEt(this.form.effectiveTime)
@@ -284,8 +261,8 @@ export default {
   },
   created () {
     this.loadData()
-    this.loadCategories()
     this.loadBundleGroups()
+    this.loadMainGroups()
     window.onresize = () => { this.tableHeight = window.innerHeight - 160 }
   }
 }

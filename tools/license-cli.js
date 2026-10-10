@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+const fs = require('fs')
+const path = require('path')
 const { getMachineId, generateLicense } = require('../utils/license')
 
 const cmd = process.argv[2]
@@ -9,9 +11,18 @@ if (cmd === 'machineid' || cmd === 'id') {
 }
 
 if (cmd === 'generate' || cmd === 'gen') {
-  const secret = process.env.LICENSE_SECRET
-  if (!secret) {
-    console.error('請先設定 LICENSE_SECRET 環境變數（必須與客戶部署端的 LICENSE_SECRET 相同）')
+  // 私鑰來源：LICENSE_PRIVATE_KEY 環境變數優先，其次 tools/.license.private.key
+  let privateKey = process.env.LICENSE_PRIVATE_KEY
+  if (!privateKey) {
+    const file = path.join(__dirname, '.license.private.key')
+    try {
+      privateKey = fs.readFileSync(file, 'utf8').trim()
+    } catch (e) {
+      privateKey = ''
+    }
+  }
+  if (!privateKey) {
+    console.error('找不到私鑰。請設定 LICENSE_PRIVATE_KEY 環境變數，或將私鑰放入 tools/.license.private.key')
     process.exit(1)
   }
   const args = {}
@@ -30,7 +41,7 @@ if (cmd === 'generate' || cmd === 'gen') {
     console.error('缺少 --mid=機器識別碼（可先執行 `node tools/license-cli.js machineid` 取得）')
     process.exit(1)
   }
-  console.log(generateLicense(payload, secret))
+  console.log(generateLicense(payload, privateKey))
   process.exit(0)
 }
 

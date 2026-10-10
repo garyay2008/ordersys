@@ -1,7 +1,7 @@
 <template>
   <div id="zone-mgr">
     <el-row>
-      <el-input v-model="newName" placeholder="區域名，如 外送 / 自取 / 包廂" size="small" style="width: 280px;" @keyup.enter.native="add"></el-input>
+      <el-input v-model="newName" placeholder="區域名，如 外賣 / 自取 / 包廂" size="small" style="width: 280px;" @keyup.enter.native="add"></el-input>
       <el-button type="primary" size="small" style="margin-left: 8px;" @click="add">添加區域</el-button>
     </el-row>
     <el-row class="row-height">

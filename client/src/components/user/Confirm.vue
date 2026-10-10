@@ -10,31 +10,41 @@
                 </div>
                 <div class="contents">
                     <div class="order-list">
-                        <div class="order-header">
-                            <span class="pic" v-if="showImages">圖片</span>
-                            <span class="name">名稱</span>
-                            <span class="count">數量</span>
-                            <span class="on-sale" v-if="showDiscount">打折</span>
-                            <span class="price">價格</span>
-                        </div>
+                        <div v-if="sentItems.length" class="section-title">已點食品</div>
+                        <ul v-if="sentItems.length">
+                            <li v-for="(item, idx) in sentItems" :key="'sent-' + idx">
+                                <div class="item-info">
+                                    <span class="name">{{ item.name }}</span>
+                                    <span class="mods-line" v-if="item.mods && item.mods.length">（{{ item.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}）</span>
+                                </div>
+                                <span class="count">x{{ item.count }}</span>
+                                <span class="price">${{ Math.round((item.price * item.count) * 100) / 100 }}</span>
+                            </li>
+                        </ul>
+                        <div class="section-title">後加食品</div>
                         <ul>
-                            <li v-for="item in orderData.order" :key="item._id">
+                            <li v-for="(item, idx) in orderData.order" :key="item.key || item._id + '-' + idx">
                                 <img v-if="showImages" :src="item.img" width="40px" height="40px" alt="">
-                                <span class="name">{{ item.name }}</span>
+                                <div class="item-info">
+                                    <span class="name">{{ item.name }}</span>
+                                    <div class="mods-row" v-if="(item.mods && item.mods.length) || item.isCombo">
+                                        <span class="edit-mod-btn" @click.stop="editMods(item)">修改</span>
+                                        <span class="mods-line" v-if="item.mods && item.mods.length">（{{ item.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}）</span>
+                                    </div>
+                                </div>
                                 <span class="count">x{{ item.count }}</span>
                                 <span class="onSale" v-if="showDiscount">${{ item.onSale * item.count }}</span>
                                 <span class="price">${{ item.price * item.count }}</span>
                             </li>
                         </ul>
                         <div class="total">
-                            <div class="total-row">小計<span class="price">${{ orderData.totalPrice }}</span></div>
                             <div class="total-row" v-if="serviceChargeEnabled">服務費 ({{ serviceChargeRate }}%)<span class="price">${{ serviceChargeAmount }}</span></div>
                             <div class="total-row grand">總計<span class="price">${{ grandTotal }}</span></div>
                         </div>
                     </div>
                 </div>
                 <div class="bottom-area">
-                    <el-button type="primary" class="submitBtn" @click="submitOrder">確認下單</el-button>
+                    <el-button type="primary" class="submitBtn" @click="askConfirm">確認下單</el-button>
                 </div>
             </template>
             <template v-else>
@@ -50,6 +60,16 @@
                     </div>
                 </div>
             </template>
+        <el-dialog :visible.sync="showConfirmBox" title="" width="80%" custom-class="confirm-submit-dialog" :show-close="false" :close-on-click-modal="false" append-to-body>
+            <div class="confirm-box-body">
+                <p class="confirm-box-title">訂單確認！</p>
+                <p class="confirm-box-desc">一旦訂單被確認，就不能取消。</p>
+                <div class="confirm-box-actions">
+                    <el-button type="primary" round :disabled="submitting" @click="doSubmit">確認</el-button>
+                    <el-button round @click="cancelConfirm">取消</el-button>
+                </div>
+            </div>
+        </el-dialog>
         </div>
     </transition>
 </template>
@@ -60,6 +80,10 @@ export default {
   props: {
     orderData: {
       type: Object
+    },
+    sentItems: {
+      type: Array,
+      default () { return [] }
     },
     showImages: {
       type: Boolean,
@@ -81,22 +105,33 @@ export default {
   data () {
     return {
       showConfirm: false,
-      orderSuccess: false
+      orderSuccess: false,
+      showConfirmBox: false,
+      submitting: false
     }
   },
   computed: {
+    sentTotal () {
+      let total = 0
+      this.sentItems.forEach(item => {
+        total += (item.price || 0) * (item.count || 1)
+      })
+      return Math.round(total * 100) / 100
+    },
     serviceChargeAmount () {
       if (!this.serviceChargeEnabled) return 0
       return Math.round((this.orderData.totalPrice || 0) * (this.serviceChargeRate || 0) / 100 * 100) / 100
     },
     grandTotal () {
-      return Math.round(((this.orderData.totalPrice || 0) + this.serviceChargeAmount) * 100) / 100
+      return Math.round(((this.orderData.totalPrice || 0) + this.sentTotal + this.serviceChargeAmount) * 100) / 100
     }
   },
   methods: {
     show () {
       this.orderSuccess = false
       this.showConfirm = true
+      this.showConfirmBox = false
+      this.submitting = false
     },
     hide () {
       this.showConfirm = false
@@ -111,7 +146,19 @@ export default {
       this.orderSuccess = false
       this.$emit('closeSent')
     },
-    submitOrder () {
+    editMods (item) {
+      this.$emit('edit-mods', item)
+    },
+    askConfirm () {
+      this.showConfirmBox = true
+    },
+    cancelConfirm () {
+      this.showConfirmBox = false
+    },
+    doSubmit () {
+      if (this.submitting) return
+      this.submitting = true
+      this.showConfirmBox = false
       const payload = { ...this.orderData, source: 'qr' }
       this.$axios.post('/api/order/submit', payload)
         .then(res => {
@@ -168,13 +215,15 @@ export default {
     .confirm-order > .header > .back > .el-icon-arrow-left{
         display: block;
         padding: 10px 14px;
-        font-size: 18px;
-        color: #1e293b;
+        font-size: 22px;
+        color: #fff;
+        background: var(--accent);
+        border-radius: 0 20px 20px 0;
+        box-shadow: 0 2px 10px var(--accent-glow);
         cursor: pointer;
-        border-radius: 0 8px 8px 0;
     }
     .confirm-order > .header > .back > .el-icon-arrow-left:active{
-        background: #f1f5f9;
+        opacity: 0.85;
     }
     .confirm-order > .header > .title{
         font-size: 17px;
@@ -217,10 +266,10 @@ export default {
         flex: 1;
     }
     .contents > .order-list > ul > li{
-        margin-bottom: 10px;
-        padding: 10px 12px;
+        margin-bottom: 2px;
+        padding: 3px 10px;
         background: #fff;
-        border-radius: 10px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
@@ -230,8 +279,15 @@ export default {
         overflow: hidden;
         object-fit: cover;
     }
-    .contents > .order-list > ul > li > .name{
-        line-height: 40px;
+    .contents > .order-list > ul > li > .item-info{
+        flex: 2;
+        min-width: 0;
+        padding-left: 8px;
+        display: flex;
+        flex-direction: column;
+    }
+    .contents > .order-list > ul > li > .item-info > .name{
+        line-height: 20px;
         text-align: left;
         font-size: 14px;
         font-weight: 600;
@@ -239,11 +295,9 @@ export default {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        flex: 2;
-        padding-left: 8px;
     }
     .contents > .order-list > ul > li > .count{
-        line-height: 40px;
+        line-height: 20px;
         font-size: 14px;
         color: #475569;
         text-align: right;
@@ -251,7 +305,7 @@ export default {
         font-weight: 500;
     }
     .contents > .order-list > ul > li > .onSale{
-        line-height: 40px;
+        line-height: 20px;
         font-size: 13px;
         text-decoration: line-through;
         color: #cbd5e1;
@@ -259,12 +313,31 @@ export default {
         flex: 1;
     }
     .contents > .order-list > ul > li > .price{
-        line-height: 40px;
+        line-height: 20px;
         font-size: 15px;
         color: #1e293b;
         text-align: right;
         flex: 1;
         font-weight: 700;
+    }
+    .contents > .order-list > ul > li > .item-info > .mods-row{
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 2px;
+    }
+    .contents > .order-list > ul > li > .item-info > .mods-row > .edit-mod-btn{
+        flex: 0 0 auto;
+        padding: 2px 8px;
+        line-height: 16px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--primary);
+        border: 1px solid var(--primary);
+        border-radius: 10px;
+        cursor: pointer;
+        white-space: nowrap;
     }
     .contents > .order-list > .total{
         margin-top: 12px;
@@ -375,6 +448,43 @@ export default {
     }
     .success-btn.continue-btn:active{
         background: #e2e8f0 !important;
+    }
+    .section-title{
+        font-size: 32.5px;
+        font-weight: 700;
+        color: var(--accent);
+        margin: 4px 0 6px;
+        padding-left: 8px;
+        border-left: 3px solid var(--accent);
+    }
+    .contents > .order-list > ul > li > .item-info .mods-line{
+        line-height: 16px;
+        font-size: 12px;
+        color: var(--accent);
+        font-weight: 400;
+        white-space: normal;
+        word-break: break-all;
+    }
+    .confirm-box-body{
+        text-align: center;
+        padding: 6px 4px 2px;
+    }
+    .confirm-box-title{
+        margin: 0 0 8px;
+        font-size: 18px;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .confirm-box-desc{
+        margin: 0 0 20px;
+        font-size: 14px;
+        color: #e74c3c;
+        font-weight: 600;
+    }
+    .confirm-box-actions{
+        display: flex;
+        justify-content: center;
+        gap: 12px;
     }
     @keyframes popIn {
         0% { transform: scale(0); opacity: 0; }

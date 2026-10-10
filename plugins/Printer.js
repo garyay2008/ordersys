@@ -1,6 +1,6 @@
 /**
  * ESC/POS 熱敏打印機插件
- * 支持網絡打印機（TCP :9100）與 CUPS/IPP 佇列（printer.queue），58/80mm 紙寬，中文 GBK 編碼
+ * 支持網絡打印機（TCP :9100），58/80mm 紙寬，中文 GBK 編碼
  * 小票內容可通過 Printer.format 配置（字段開關/字號/對齊），支持後廚/結賬/上菜紙三種
  */
 const net = require('net')
@@ -10,7 +10,6 @@ const iconv = require('iconv-lite')
 const moment = require('moment')
 const qrcode = require('qrcode')
 const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas')
-const cups = require('./Cups')
 const config = require('../config/config')
 
 const ESC = 0x1b
@@ -75,6 +74,8 @@ const DEFAULT_FORMAT = {
       deskNo: { show: true, size: 1, align: 'left' },
       deskNo2: { show: true, size: 1, align: 'right' },
       orderNo: { show: true, size: 1, align: 'left' },
+      orderNoStation: { show: false, size: 1, align: 'left' },
+      dateSendTimeWaiter: { show: false, size: 1, align: 'left' },
       items: { show: true, size: 1, align: 'left' },
       total: { show: true, size: 1, align: 'right' },
       remark: { show: true, size: 1, align: 'left' },
@@ -92,7 +93,7 @@ const DEFAULT_FORMAT = {
       shopName: { show: true, size: 4, align: 'center' },
       address: { show: true, size: 1, align: 'center' },
       phone: { show: true, size: 1, align: 'center' },
-      deskNo: { show: true, size: 4, align: 'center' },
+      deskNo: { show: false, size: 4, align: 'center' },
       deskNoBig: { show: true, size: 5, align: 'left' },
       orderNo: { show: true, size: 1, align: 'left' },
       items: { show: true, size: 1, align: 'left' },
@@ -140,7 +141,9 @@ const DEFAULT_FORMAT = {
       phone: { show: true, size: 1, align: 'center' },
       deskNo: { show: true, size: 4, align: 'center' },
       deskNoBig: { show: true, size: 5, align: 'left' },
+      barcode: { show: false },
       orderNo: { show: true, size: 1, align: 'left' },
+      seq: { show: true, size: 1, align: 'left' },
       items: { show: true, size: 1, align: 'left' },
       remark: { show: true, size: 1, align: 'left' },
       time: { show: true, size: 1, align: 'left' },
@@ -163,6 +166,7 @@ const DEFAULT_FORMAT = {
       deskNo: { show: true, size: 4, align: 'center' },
       orderNo: { show: true, size: 1, align: 'left' },
       time: { show: true, size: 1, align: 'left' },
+      qr: { show: true, size: 2 },
       divider1: { show: true, type: '=' },
       divider2: { show: true, type: '-' },
       divider3: { show: true, type: '=' }
@@ -175,6 +179,7 @@ const DEFAULT_FORMAT = {
       shopName: { show: true, size: 3, align: 'center' },
       deskNo: { show: true, size: 3, align: 'center' },
       hint: { show: true, size: 1, align: 'center' },
+      qr: { show: true, size: 3 },
       divider1: { show: true, type: '-' }
     }
   },
@@ -209,6 +214,23 @@ const DEFAULT_FORMAT = {
       divider3: { show: true, type: '-' },
       divider4: { show: true, type: '=' }
     }
+  },
+  cancelitem: {
+    title: '已取消',
+    fields: {
+      title: { show: true, size: 3, align: 'center', bold: true },
+      shopName: { show: true, size: 4, align: 'center' },
+      deskNo: { show: true, size: 1, align: 'left' },
+      orderNo: { show: true, size: 1, align: 'left' },
+      waiter: { show: true, size: 1, align: 'left' },
+      items: { show: true, size: 1, align: 'left' },
+      reason: { show: true, size: 1, align: 'left' },
+      time: { show: true, size: 1, align: 'left' },
+      divider1: { show: true, type: '=' },
+      divider2: { show: true, type: '-' },
+      divider3: { show: true, type: '-' },
+      divider4: { show: true, type: '=' }
+    }
   }
 }
 
@@ -216,7 +238,7 @@ const DEFAULT_FORMAT = {
 Object.keys(DEFAULT_FORMAT).forEach(type => {
   const fields = DEFAULT_FORMAT[type].fields
   if (!fields) return
-  const simple = type === 'qrcode' || type === 'tableqr'
+  const simple = type === 'qrcode' || type === 'tableqr' || type === 'cancelitem'
   if (!simple && !fields.waiter) fields.waiter = { show: true, size: 1, align: 'left' }
   if (!simple && !fields.items2) fields.items2 = { show: false, size: 1, align: 'left' }
   if (!simple && !fields.mods) fields.mods = { show: true, size: 1, align: 'left' }
@@ -265,14 +287,15 @@ function resolveWeight (w, bold) {
 
 // 各小票類型的預設欄位順序（用戶可上下調整）
 const DEFAULT_ORDER = {
-  kitchen: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'station', 'divider2', 'items', 'items2', 'items3', 'total', 'divider3', 'remark', 'time', 'sendTime', 'deskNo2', 'divider4'],
+  kitchen: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'station', 'orderNoStation', 'dateSendTimeWaiter', 'divider2', 'items', 'items2', 'items3', 'total', 'divider3', 'remark', 'time', 'sendTime', 'deskNo2', 'divider4'],
   serving: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'date', 'divider2', 'items', 'items2', 'items3', 'divider3', 'remark', 'time', 'sendTime', 'footer', 'divider4'],
-  print: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'remark', 'time', 'sendTime', 'date', 'divider4'],
+  print: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'barcode', 'deskNoBig', 'orderNo', 'seq', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'remark', 'time', 'sendTime', 'date', 'divider4'],
   qrcode: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'time', 'divider3'],
   tableqr: ['shopName', 'title', 'deskNo', 'hint', 'divider1'],
   chase: ['title', 'shopName', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'remark', 'time', 'sendTime', 'divider4'],
   receipt: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'payMethod', 'remark', 'time', 'sendTime', 'date', 'divider4', 'footer'],
-  pantry: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'divider2', 'message', 'divider3', 'waiter', 'time', 'divider4']
+  pantry: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'divider2', 'message', 'divider3', 'waiter', 'time', 'divider4'],
+  cancelitem: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'items', 'reason', 'divider3', 'time', 'divider4']
 }
 
 // 展開分組 order（元素可為字串或陣列），供舊資料相容檢查使用
@@ -877,6 +900,23 @@ function pushComboContents (p, item, w, modField) {
   }
 }
 
+// 不列印套餐名：把套餐子品項當獨立品項打印（不印套餐名標題、不縮排），lineFn 供不同票種套用自己的行格式
+function pushComboItemsFlat (p, item, w, modField, lineFn) {
+  if (!item.contents || !item.contents.length) return
+  const qty = item.count || 1
+  for (const c of item.contents) {
+    lineFn(`${c.name}  x${qty}`)
+    if (c.mods && c.mods.length) {
+      p.push(redOn())
+      for (const m of c.mods) {
+        const t = modText(m)
+        if (t) p.push(fieldLine('　' + t, modField || { show: true, size: 1, align: 'left' }, w))
+      }
+      p.push(redOff())
+    }
+  }
+}
+
 // 套餐名稱只印一次（comboNameOnce）：依前一個品項是否同一套餐，決定是否先印套餐名標題行。
 // 回傳 { header, label, count, isSub }：
 //   header 非空代表此品項是該套餐第一個子品項（需先印「套餐名 x數量」標題行）
@@ -895,6 +935,18 @@ function comboLine (item, state) {
 }
 
 // 生成 QR Code 光柵圖像（GS v 0），moduleSize 為每個模塊的點數
+// 點餐碼 QR 尺寸：1=小 2=正常 3=中 4=大 5=特大（對應模塊尺寸 2/3/4/5/6）
+function qrModuleSize (size) {
+  switch (size) {
+    case 1: return 2
+    case 2: return 3
+    case 3: return 4
+    case 4: return 5
+    case 5: return 6
+    default: return 4
+  }
+}
+
 function buildQRImage (text, moduleSize = 3) {
   try {
     const q = qrcode.create(text, { errorCorrectionLevel: 'M' })
@@ -917,6 +969,71 @@ function buildQRImage (text, moduleSize = 3) {
     const xH = Math.floor(bytesPerRow / 256)
     const yL = big % 256
     const yH = Math.floor(big / 256)
+    const head = Buffer.from([GS, 0x76, 0x30, 0x00, xL, xH, yL, yH])
+    return Buffer.concat([head, ...rows])
+  } catch (e) {
+    return Buffer.alloc(0)
+  }
+}
+
+// ---- CODE128 條碼（圖像式 GS v 0）----
+// 以 Code Set B 編碼（支援 ASCII 32–127），輸出 1=bar / 0=space 的模塊位元字串
+const CODE128_PATTERNS = [
+  '11011001100', '11001101100', '11001100110', '10010011000', '10010001100', '10001001100', '10011001000', '10011000100', '10001100100', '11001001000',
+  '11001000100', '11000100100', '10110011100', '10011011100', '10011001110', '10111001100', '10011101100', '10011100110', '11001110010', '11001011100',
+  '11001001110', '11011100100', '11001110100', '11101101110', '11101001100', '11100101100', '11100100110', '11101100100', '11100110100', '11100110010',
+  '11011011000', '11011000110', '11000110110', '10100011000', '10001011000', '10001000110', '10110001000', '10001101000', '10001100010', '11010001000',
+  '11000101000', '11000100010', '10110111000', '10110001110', '10001101110', '10111011000', '10111000110', '10001110110', '11101110110', '11010001110',
+  '11000101110', '11011101000', '11011100010', '11011101110', '11101011000', '11101000110', '11100010110', '11101101000', '11101100010', '11100011010',
+  '11101111010', '11001000010', '11110001010', '10100110000', '10100001100', '10010110000', '10010000110', '10000101100', '10000100110', '10110010000',
+  '10110000100', '10011010000', '10011000010', '10000110100', '10000110010', '11000010010', '11001010000', '11110111010', '11000010100', '10001111010',
+  '10100111100', '10010111100', '10010011110', '10111100100', '10011110100', '10011110010', '11110100100', '11110010100', '11110010010', '11011011110',
+  '11011110110', '11110110110', '10101111000', '10100011110', '10001011110', '10111101000', '10111100010', '11110101000', '11110100010', '10111011110',
+  '10111101110', '11101011110', '11110101110', '11010000100', '11010010000', '11010011100', '11000111010'
+]
+
+function code128Bars (text) {
+  const codes = [104] // Start B
+  let checksum = 104
+  for (let i = 0; i < text.length; i++) {
+    let c = text.charCodeAt(i)
+    if (c < 32 || c > 127) c = 32 // 不可列印字元回退為空格
+    const v = c - 32
+    codes.push(v)
+    checksum += v * (i + 1)
+  }
+  codes.push(checksum % 103)
+  codes.push(106) // Stop
+  let bits = ''
+  for (const c of codes) bits += CODE128_PATTERNS[c]
+  bits += '11' // 終止符（2 模塊）
+  return bits
+}
+
+// 生成 CODE128 條碼光柵圖像（GS v 0）。moduleWidth=每模塊點數、height=條碼高度點數。
+function buildBarcodeImage (text, moduleWidth = 2, height = 48) {
+  try {
+    if (!text) return Buffer.alloc(0)
+    const bits = code128Bars(String(text))
+    const quiet = 10 // 左右靜默區（模塊數，掃描辨識所需）
+    const totalModules = bits.length + quiet * 2
+    const big = totalModules * moduleWidth
+    const bytesPerRow = Math.ceil(big / 8)
+    const rows = []
+    for (let y = 0; y < height; y++) {
+      const row = Buffer.alloc(bytesPerRow)
+      for (let x = 0; x < big; x++) {
+        const m = Math.floor(x / moduleWidth) - quiet
+        if (m >= 0 && m < bits.length && bits[m] === '1') {
+          row[Math.floor(x / 8)] |= 0x80 >> (x % 8)
+        }
+      }
+      rows.push(row)
+    }
+    const xL = bytesPerRow % 256
+    const xH = Math.floor(bytesPerRow / 256)
+    const yL = height % 256
+    const yH = Math.floor(height / 256)
     const head = Buffer.from([GS, 0x76, 0x30, 0x00, xL, xH, yL, yH])
     return Buffer.concat([head, ...rows])
   } catch (e) {
@@ -1037,6 +1154,31 @@ function lineWidthOf (paperWidth) {
   return paperWidth === 80 ? 48 : 32
 }
 
+// 列印相關 PosSetting 快取（票據生成為同步流程，需避免逐票查庫；由 server 啟動與 PosSetting 存檔時更新）
+let _posSettingCache = null
+function setPosSettingCache (s) { _posSettingCache = s || null }
+
+// 外賣枱枱號前綴：枱號落在設定範圍內（預設 901–999）時，票據枱號前顯示「外賣」二字
+// 以枱號範圍判斷（不依 zone），因外賣枱枱號目前仍以 zone=堂食 入單（POS enterTable 未依枱面 zone 切換）
+function deskLabel (setting, order) {
+  const desk = order && order.deskNo
+  if (desk === undefined || desk === null || String(desk) === '' || String(desk) === '0') {
+    // 外賣叫號：deskNo=0 且有叫號時，顯示叫號（取代「0」）
+    if (order && order.takeawayNo) return String(order.takeawayNo)
+    return String(desk == null ? '' : desk)
+  }
+  const ps = _posSettingCache || setting || {}
+  const from = ps.takeawayTableFrom || '901'
+  const to = ps.takeawayTableTo || '999'
+  const n = Number(desk)
+  const nf = Number(from)
+  const nt = Number(to)
+  if (!Number.isNaN(n) && !Number.isNaN(nf) && !Number.isNaN(nt) && n >= nf && n <= nt) {
+    return `外賣${desk}`
+  }
+  return String(desk)
+}
+
 // 生成各簡單欄位的文字內容（供單欄或同列分組使用）
 function buildTexts (setting, order, fmt, type) {
   const d = order.date || new Date()
@@ -1055,7 +1197,7 @@ function buildTexts (setting, order, fmt, type) {
     shopName: setting.shopName || '',
     address: setting.address || '',
     phone: setting.phone ? `電話：${setting.phone}` : '',
-    deskNo: `台號：${order.deskNo}`,
+    deskNo: type === 'serving' ? `${deskLabel(setting, order)}` : `台號：${deskLabel(setting, order)}`,
     orderNo: `訂單號：${order.orderNo}`,
     people: `人數：${order.pax || 0}`,
     date: `日期：${moment(d).format('YYYY-MM-DD')}`,
@@ -1115,12 +1257,13 @@ function extraRenderers (f, w, order, type, setting) {
       for (const item of items) {
         const d = comboLine(item, comboState)
         if (d.header) {
-          const hcells = [{ text: `${d.header}  x${d.count}`, align: 'left', size }]
+          const headerText = type === 'kitchen' ? `x${d.count}  ${d.header}` : `${d.header}  x${d.count}`
+          const hcells = [{ text: headerText, align: 'left', size }]
           if (imageCtx) p.push(drawTextRow(hcells))
           else p.push(textRow(hcells, w))
         }
         const iw = itemWaiterText(item)
-        const itemLabel = (d.isSub ? d.label : `${d.label}  x${d.count}`) + (iw ? ` [${iw}]` : '')
+        const itemLabel = (d.isSub ? d.label : (type === 'kitchen' ? `x${d.count}  ${d.label}` : `${d.label}  x${d.count}`)) + (iw ? ` [${iw}]` : '')
         const cells = [
           { text: itemLabel, align: 'left', size },
           { text: itemAddTime(item, order), align: 'right', size }
@@ -1158,6 +1301,12 @@ function extraRenderers (f, w, order, type, setting) {
         if (d.isSub) {
           // 子品項：縮排顯示，不重複金額
           p.push(fieldLine(d.label, f('items3'), w))
+        } else if (type === 'kitchen') {
+          // 後廚：數量 + 品項 + 金額 單行
+          const red = d.count >= 2
+          if (red) p.push(redOn())
+          p.push(fieldLine(`x${d.count}  ${d.label}  $${Math.round(itemSubtotal(item, d.count))}`, f('items3'), w))
+          if (red) p.push(redOff())
         } else {
           // 數量 2 或以上整行紅色，否則整行黑色（TM-U220 ESC r 為行導向，整行同色最可靠）
           const red = d.count >= 2
@@ -1285,19 +1434,24 @@ function buildKitchenOrder (setting, order, station) {
   const texts = buildTexts(setting, order, fmt, 'kitchen')
   // 檔口欄位：供同列分組（renderRow）與獨立欄位（renderers.station）共用，避免被分組時遺漏
   texts.station = station ? `【${station}檔】` : null
+  texts.orderNoStation = `單號 ${order.orderNo} 檔口 ${station}`
+  texts.dateSendTimeWaiter = `${moment(order.date || new Date()).format('YYYY-MM-DD')} ${orderSendTime(order)}${order.waiter ? ' ' + order.waiter : ''}`
   const renderers = {
     shopName: (p) => {
       if (f('shopName').show) p.push(textLine(setting.shopName || '後廚小票', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
     },
     station: (p) => { if (f('station').show && station) p.push(fieldLine(`【${station}檔】`, f('station'), w)) },
+    orderNoStation: (p) => { if (f('orderNoStation').show) p.push(fieldLine(`單號 ${order.orderNo} 檔口 ${station}`, f('orderNoStation'), w)) },
+    dateSendTimeWaiter: (p) => { if (f('dateSendTimeWaiter').show) p.push(fieldLine(`${moment(order.date || new Date()).format('YYYY-MM-DD')} ${orderSendTime(order)}${order.waiter ? ' ' + order.waiter : ''}`, f('dateSendTimeWaiter'), w)) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
     deskNo: (p) => {
       if (!f('deskNo').show) return
       // 針機點陣圖放大：枱號與菜品明細以 ESC * m=0 輸出（其餘欄位維持內建字庫）
       const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
       const zone = order.zone || '堂食'
-      // 堂食只印枱號；外賣/外送等非堂食先印區域，再印枱號（各佔一行）
-      const lines = (zone === '堂食') ? [String(order.deskNo)] : [zone, String(order.deskNo)]
+      const hasDesk = order.deskNo !== undefined && order.deskNo !== null && String(order.deskNo) !== '' && String(order.deskNo) !== '0'
+      // 堂食只印枱號；外賣枱/外賣等非堂食先印區域，再印枱號（無枱號時只印區域，避免出現「0」）
+      const lines = (zone === '堂食') ? [deskLabel(setting, order)] : (hasDesk ? [zone, deskLabel(setting, order)] : (order.takeawayNo ? [`${zone} ${order.takeawayNo}`] : [zone]))
       if (useDot) p.push(beginDotImage(setting, true))
       else p.push(redOn())
       for (const line of lines) p.push(fieldLine(line, f('deskNo'), w))
@@ -1306,11 +1460,14 @@ function buildKitchenOrder (setting, order, station) {
     },
     deskNo2: (p) => {
       if (!f('deskNo2').show) return
+      // 無枱號（外賣枱/外賣 deskNo=0）不印右下台號，避免出現「0」
+      const hasDesk = order.deskNo !== undefined && order.deskNo !== null && String(order.deskNo) !== '' && String(order.deskNo) !== '0'
+      if (!hasDesk) return
       // 與左上角枱號一致：針機點陣圖放大輸出
       const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
       if (useDot) p.push(beginDotImage(setting, true))
       else p.push(redOn())
-      p.push(fieldLine(String(order.deskNo), f('deskNo2'), w))
+      p.push(fieldLine(deskLabel(setting, order), f('deskNo2'), w))
       if (useDot) p.push(endDotImage())
       else p.push(redOff())
     },
@@ -1327,10 +1484,10 @@ function buildKitchenOrder (setting, order, station) {
         const d = comboLine(item, comboState)
         if (d.header) {
           p.push(redOn())
-          p.push(fieldLine(`${d.header}  x${d.count}`, f('items'), w))
+          p.push(fieldLine(`x${d.count}  ${d.header}`, f('items'), w))
           p.push(redOff())
         }
-        p.push(fieldLine(d.isSub ? d.label : `${d.label}  x${d.count}`, f('items'), w))
+        p.push(fieldLine(d.isSub ? d.label : `x${d.count}  ${d.label}`, f('items'), w))
         if (item.mods && item.mods.length) {
           p.push(redOn())
           for (const m of item.mods) {
@@ -1364,7 +1521,7 @@ function buildKitchenByStation (setting, order) {
     if (item.contents && item.contents.length) {
       item.contents.forEach(c => {
         expanded.push(Object.assign({}, c, {
-          _comboName: item.name,
+          _comboName: item.noPrintComboName ? '' : (item.name2 || item.name),
           _comboCount: item.count || 1
         }))
       })
@@ -1382,7 +1539,7 @@ function buildKitchenByStation (setting, order) {
       grouped[station].push(item)
     })
   })
-  const orderZone = order.zone === '外賣' ? '外賣' : '堂食'
+  const orderZone = (order.zone === '外賣' || order.zone === '外賣枱') ? '外賣' : '堂食'
   const tickets = []
   Object.keys(grouped).forEach(station => {
     const printer = resolvePrinter(setting, station) // 按檔口名匹配
@@ -1415,13 +1572,17 @@ function buildExpeditorOrder (setting, order, title) {
   parts.push(textLine(printer.shopName || '全單明細', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
   parts.push(textLine(title || '【傳菜總檯·全單明細】', { align: 'center', width: w }))
   parts.push(divider(w, '='))
-  parts.push(textLine(`台號：${order.deskNo}`, { width: w }))
+  parts.push(textLine(`台號：${deskLabel(setting, order)}`, { width: w }))
   parts.push(textLine(`訂單號：${order.orderNo}`, { width: w }))
   parts.push(divider(w))
   const items = order.order || []
   for (const item of items) {
-    parts.push(textLine(`${(item.name2 || item.name)}  x${item.count}`, { width: w }))
-    if (item.contents && item.contents.length) pushComboContents(parts, item, w)
+    if (item.contents && item.contents.length && item.noPrintComboName) {
+      pushComboItemsFlat(parts, item, w, null, (s) => parts.push(textLine(s, { width: w })))
+    } else {
+      parts.push(textLine(`${(item.name2 || item.name)}  x${item.count}`, { width: w }))
+      if (item.contents && item.contents.length) pushComboContents(parts, item, w)
+    }
   }
   parts.push(divider(w))
   if (order.remark) parts.push(textLine(`備註：${order.remark}`, { width: w }))
@@ -1442,7 +1603,7 @@ async function buildServingOrder (setting, order, newCount) {
   // 只列印後加項目：newCount>0 時只取訂單最後 N 個品項（其餘欄位沿用整單資料）
   const allItems = order.order || []
   const effectiveOrder = (newCount > 0)
-    ? Object.assign({}, order, { order: allItems.slice(-newCount) })
+    ? Object.assign({}, order.toObject ? order.toObject() : order, { order: allItems.slice(-newCount) })
     : order
   // 店舖 Logo（若已設定且啟用 logoEnabledServing 則印在最上方）
   if (setting.logoEnabledServing) {
@@ -1453,7 +1614,7 @@ async function buildServingOrder (setting, order, newCount) {
   const renderers = {
     shopName: (p) => { if (f('shopName').show) p.push(textLine(setting.shopName || '上菜紙', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true })) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${order.deskNo}`, f('deskNo'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`${deskLabel(setting, order)}`, f('deskNo'), w)) },
     orderNo: (p) => { if (f('orderNo').show) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w)) },
     people: (p) => { if (f('people').show) p.push(fieldLine(`人數：${order.pax || 0}`, f('people'), w)) },
     date: (p) => { if (f('date').show) p.push(fieldLine(texts.date, f('date'), w)) },
@@ -1461,6 +1622,10 @@ async function buildServingOrder (setting, order, newCount) {
       if (!f('items').show) return
       const items = effectiveOrder.order || []
       for (const item of items) {
+        if (item.contents && item.contents.length && item.noPrintComboName) {
+          pushComboItemsFlat(p, item, w, f('mods'), (s) => p.push(fieldLine(s, f('items'), w)))
+          continue
+        }
         p.push(fieldLine(`${item.name}  x${item.count}`, f('items'), w))
         // 改碼（口味備註）紅色字
         if (item.mods && item.mods.length) {
@@ -1492,9 +1657,20 @@ async function buildPrintOrder (setting, order) {
   const f = (key) => fields[key] || { show: true, size: 1, align: 'left' }
   const w = lineWidthOf(setting.paperWidth)
   const parts = [initPrinter(setting)]
+  // 條碼：固定印在單據最左上角、大台號之上（掃描跳枱用），僅熱敏打印機支援
+  if (f('barcode').show && setting.tech !== 'dot') {
+    const desk = order && order.deskNo
+    const hasDesk = desk !== undefined && desk !== null && String(desk) !== '' && String(desk) !== '0'
+    if (hasDesk) {
+      const barSize = Number(f('barcode').size || 1)
+      const moduleWidth = barSize >= 3 ? 4 : barSize === 2 ? 3 : 2
+      const barHeight = barSize >= 3 ? 96 : barSize === 2 ? 72 : 48
+      parts.push(qrLine(buildBarcodeImage(String(desk), moduleWidth, barHeight), setting.paperWidth))
+    }
+  }
   // 大台號：固定印在單據最左上角（Logo 之上），不受字段排序影響
   if (f('deskNoBig').show) {
-    parts.push(fieldLine(`${order.deskNo}`, Object.assign({}, f('deskNoBig'), { align: 'left' }), w))
+    parts.push(fieldLine(`${deskLabel(setting, order)}`, Object.assign({}, f('deskNoBig'), { align: 'left' }), w))
   }
   // 店舖 Logo（若已設定且啟用 logoEnabledPrint 則印在最上方）
   if (setting.logoEnabledPrint) {
@@ -1507,9 +1683,10 @@ async function buildPrintOrder (setting, order) {
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
     address: (p) => { if (f('address').show && setting.address) p.push(fieldLine(setting.address, f('address'), w)) },
     phone: (p) => { if (f('phone').show && setting.phone) p.push(fieldLine(`電話：${setting.phone}`, f('phone'), w)) },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${order.deskNo}`, f('deskNo'), w)) },
-    deskNoBig: (p) => { if (f('deskNoBig').show) p.push(fieldLine(`${order.deskNo}`, f('deskNoBig'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
+    deskNoBig: (p) => { if (f('deskNoBig').show) p.push(fieldLine(`${deskLabel(setting, order)}`, f('deskNoBig'), w)) },
     orderNo: (p) => { if (f('orderNo').show) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w)) },
+    seq: (p) => { if (f('seq').show && order.orderSeq) p.push(fieldLine(`流水號：${order.orderSeq}`, f('seq'), w)) },
     items: (p) => {
       if (!f('items').show) return
       const items = order.order || []
@@ -1549,8 +1726,8 @@ async function buildPrintOrder (setting, order) {
     }
   }
   Object.assign(renderers, extraRenderers(f, w, order, 'print', setting))
-  // 大台號已提前印在左上角，跳過原欄位避免重複列印
-  renderFields(parts, (fmt.order || []).filter(k => k !== 'deskNoBig'), renderers, texts, fields, w)
+  // 大台號與條碼已提前印在左上角，跳過原欄位避免重複列印
+  renderFields(parts, (fmt.order || []).filter(k => k !== 'deskNoBig' && k !== 'barcode'), renderers, texts, fields, w)
   parts.push(feedLines(3))
   parts.push(cut())
   return concat(parts)
@@ -1572,10 +1749,11 @@ async function buildQrcodeOrder (setting, order) {
   const renderers = {
     shopName: (p) => { if (f('shopName').show) p.push(textLine(setting.shopName || '二維碼小票', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true })) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${order.deskNo}`, f('deskNo'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
     orderNo: (p) => { if (f('orderNo').show) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w)) },
     qr: (p) => {
-      p.push(qrLine(buildQRImage(order.orderNo), setting.paperWidth))
+      if (f('qr').show === false) return
+      p.push(qrLine(buildQRImage(order.orderNo, qrModuleSize(f('qr').size)), setting.paperWidth))
     },
     time: (p) => { if (f('time').show) p.push(fieldLine(texts.time, f('time'), w)) }
   }
@@ -1605,11 +1783,12 @@ async function buildTableQrOrder (setting, order, url) {
   const renderers = {
     shopName: (p) => { if (f('shopName').show) p.push(textLine(setting.shopName || '歡迎光臨', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true })) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${String(order.deskNo)}`, f('deskNo'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
     hint: (p) => { if (f('hint').show) p.push(fieldLine('請用手機相機掃描下單', f('hint'), w)) },
     qr: (p) => {
+      if (f('qr').show === false) return
       p.push(feedLines(1))
-      p.push(qrLine(buildQRImage(url, 4), setting.paperWidth))
+      p.push(qrLine(buildQRImage(url, qrModuleSize(f('qr').size)), setting.paperWidth))
       p.push(feedLines(1))
     }
   }
@@ -1644,7 +1823,7 @@ function buildChaseOrder (setting, order, station) {
       if (f('shopName').show) p.push(textLine(setting.shopName || '', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
       if (station) p.push(textLine(`【${station}檔】`, { align: 'center', width: w, doubleWidth: true }))
     },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${order.deskNo}`, f('deskNo'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
     orderNo: (p) => { if (f('orderNo').show) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w)) },
     items: (p) => {
       if (!f('items').show) return
@@ -1686,7 +1865,7 @@ function buildChaseByStation (setting, order) {
     if (item.contents && item.contents.length) {
       item.contents.forEach(c => {
         expanded.push(Object.assign({}, c, {
-          _comboName: item.name,
+          _comboName: item.noPrintComboName ? '' : (item.name2 || item.name),
           _comboCount: item.count || 1
         }))
       })
@@ -1725,7 +1904,7 @@ function buildPantryMessage (setting, opts) {
   const texts = {
     title: fmt.title,
     shopName: setting.shopName || '',
-    deskNo: opts.deskNo ? `台號：${opts.deskNo}` : '',
+    deskNo: opts.deskNo ? `台號：${deskLabel(setting, { deskNo: opts.deskNo })}` : '',
     orderNo: opts.orderNo ? `訂單號：${opts.orderNo}` : '',
     message: opts.message || '',
     waiter: opts.waiter ? `開單員工：${opts.waiter}` : '',
@@ -1734,7 +1913,7 @@ function buildPantryMessage (setting, opts) {
   const renderers = {
     shopName: (p) => { if (f('shopName').show) p.push(textLine(setting.shopName || '班地厘訊息', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true })) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
-    deskNo: (p) => { if (f('deskNo').show && opts.deskNo) p.push(fieldLine(`台號：${opts.deskNo}`, f('deskNo'), w)) },
+    deskNo: (p) => { if (f('deskNo').show && opts.deskNo) p.push(fieldLine(`台號：${deskLabel(setting, { deskNo: opts.deskNo })}`, f('deskNo'), w)) },
     orderNo: (p) => { if (f('orderNo').show && opts.orderNo) p.push(fieldLine(`訂單號：${opts.orderNo}`, f('orderNo'), w)) },
     message: (p) => { if (f('message').show && opts.message) p.push(fieldLine(opts.message, f('message'), w)) },
     waiter: (p) => { if (f('waiter').show && opts.waiter) p.push(fieldLine(`開單員工：${opts.waiter}`, f('waiter'), w)) },
@@ -1750,26 +1929,68 @@ function buildPantryMessage (setting, opts) {
 // opts: { order, items: [{ name, count }], reason, waiter }
 function buildCancelItemTicket (setting, opts) {
   opts = opts || {}
+  const fmt = mergeFormat('cancelitem', setting)
+  const fields = fmt.fields || {}
+  const f = (key) => fields[key] || { show: true, size: 1, align: 'left' }
   const w = lineWidthOf(setting.paperWidth)
   const parts = [initPrinter(setting)]
   const timeText = moment(new Date()).format('HH:mm')
   const order = opts.order || {}
-  parts.push(textLine(setting.shopName || '', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
-  parts.push(redOn())
-  parts.push(fieldLine('已取消', { size: 3, align: 'center', bold: true }, w))
-  parts.push(redOff())
-  parts.push(divider(w, '='))
-  if (order.deskNo != null && order.deskNo !== '') parts.push(fieldLine(`台號：${order.deskNo}`, { size: 1, align: 'left' }, w))
-  if (order.orderNo) parts.push(fieldLine(`訂單號：${order.orderNo}`, { size: 1, align: 'left' }, w))
-  if (opts.waiter) parts.push(fieldLine(`開單員工：${opts.waiter}`, { size: 1, align: 'left' }, w))
-  parts.push(divider(w, '-'))
-  for (const it of (opts.items || [])) {
-    if (!it) continue
-    parts.push(fieldLine(`${it.name}  x${it.count}`, { size: 1, align: 'left' }, w))
+  const items = opts.items || []
+  const renderers = {
+    shopName: (p) => {
+      if (f('shopName').show) p.push(textLine(setting.shopName || '', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
+    },
+    title: (p) => {
+      if (!f('title').show || !fmt.title) return
+      // 針機點陣圖放大：標題「已取消」以 ESC * m=0 輸出（紅字），其餘欄位維持內建字庫
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting, true))
+      else p.push(redOn())
+      p.push(fieldLine(fmt.title, f('title'), w))
+      if (useDot) p.push(endDotImage())
+      else p.push(redOff())
+    },
+    deskNo: (p) => {
+      if (!f('deskNo').show || order.deskNo == null || order.deskNo === '') return
+      // 針機點陣圖放大：枱號與後廚小票一致以 ESC * m=0 輸出（紅字）
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting, true))
+      p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w))
+      if (useDot) p.push(endDotImage())
+    },
+    orderNo: (p) => {
+      if (f('orderNo').show && order.orderNo) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w))
+    },
+    waiter: (p) => {
+      if (f('waiter').show && opts.waiter) p.push(fieldLine(`開單員工：${opts.waiter}`, f('waiter'), w))
+    },
+    items: (p) => {
+      if (!f('items').show) return
+      // 針機點陣圖放大：取消項目以 ESC * m=0 輸出，突破內建 2x2 字號上限
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting))
+      for (const it of items) {
+        if (!it) continue
+        p.push(fieldLine(`${it.name}  x${it.count}  ${timeText}`, f('items'), w))
+      }
+      if (useDot) p.push(endDotImage())
+    },
+    reason: (p) => {
+      if (!f('reason').show || !opts.reason) return
+      // 針機點陣圖放大以紅字輸出原因，其餘文字模式用 ESC r 切換色帶（紅字）
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting, true))
+      else p.push(redOn())
+      p.push(fieldLine(`原因：${opts.reason}`, f('reason'), w))
+      if (useDot) p.push(endDotImage())
+      else p.push(redOff())
+    },
+    time: (p) => {
+      if (f('time').show) p.push(fieldLine(`取消時間：${timeText}`, f('time'), w))
+    }
   }
-  if (opts.reason) parts.push(fieldLine(`原因：${opts.reason}`, { size: 1, align: 'left' }, w))
-  parts.push(divider(w, '-'))
-  parts.push(fieldLine(`取消時間：${timeText}`, { size: 1, align: 'left' }, w))
+  renderFields(parts, fmt.order, renderers, {}, fields, w)
   parts.push(feedLines(3))
   parts.push(cut())
   return concat(parts)
@@ -1781,10 +2002,8 @@ function resolveZonePrinter (setting, deskNo, type) {
   const zone = zones.find(z => (z.desks || []).indexOf(Number(deskNo)) >= 0)
   if (!zone) return null
   if (type === 'service') {
-    if (zone.serviceQueue) return { queue: zone.serviceQueue, paperWidth: 58 }
     return zone.serviceIp ? { ip: zone.serviceIp, port: zone.servicePort || 9100, paperWidth: 58 } : null
   }
-  if (zone.cashierQueue) return { queue: zone.cashierQueue, paperWidth: 58 }
   return zone.cashierIp ? { ip: zone.cashierIp, port: zone.cashierPort || 9100, paperWidth: 58 } : null
 }
 
@@ -1798,7 +2017,7 @@ async function buildReceipt (setting, order, opts) {
   const parts = [initPrinter(setting)]
   // 大台號：固定印在單據最左上角（Logo 之上），不受字段排序影響
   if (f('deskNoBig').show) {
-    parts.push(fieldLine(`${order.deskNo}`, Object.assign({}, f('deskNoBig'), { align: 'left' }), w))
+    parts.push(fieldLine(`${deskLabel(setting, order)}`, Object.assign({}, f('deskNoBig'), { align: 'left' }), w))
   }
   // 店舖 Logo（若已設定且啟用 logoEnabled 則印在最上方）
   if (setting.logoEnabled !== false) {
@@ -1811,8 +2030,8 @@ async function buildReceipt (setting, order, opts) {
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
     address: (p) => { if (f('address').show && setting.address) p.push(fieldLine(setting.address, f('address'), w)) },
     phone: (p) => { if (f('phone').show && setting.phone) p.push(fieldLine(`電話：${setting.phone}`, f('phone'), w)) },
-    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${order.deskNo}`, f('deskNo'), w)) },
-    deskNoBig: (p) => { if (f('deskNoBig').show) p.push(fieldLine(`${order.deskNo}`, f('deskNoBig'), w)) },
+    deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
+    deskNoBig: (p) => { if (f('deskNoBig').show) p.push(fieldLine(`${deskLabel(setting, order)}`, f('deskNoBig'), w)) },
     orderNo: (p) => {
       if (f('orderNo').show) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w))
       if (extra.invoiceNo) p.push(fieldLine(`發票流水號：${extra.invoiceNo}`, f('orderNo'), w))
@@ -1942,7 +2161,8 @@ function buildReportTicket (setting, report) {
         const countStr = (row.count !== undefined && row.count !== null && row.count !== '') ? String(row.count) : ''
         const amountStr = (row.amount !== undefined && row.amount !== null && row.amount !== '') ? '$' + moneyStr(row.amount) : ''
         const avgStr = (row.average !== undefined && row.average !== null && row.average !== '') ? String(row.average) : ''
-        const value = [countStr, amountStr, avgStr].filter(Boolean).join('　')
+        const tipStr = (row.tip !== undefined && row.tip !== null && row.tip !== '') ? '小賬$' + moneyStr(row.tip) : ''
+        const value = [countStr, amountStr, avgStr, tipStr].filter(Boolean).join('　')
         emitRow(row.label, value, row.bold)
         if (row.extra) parts.push(textLine('　' + row.extra, { width: w }))
       })
@@ -1984,20 +2204,19 @@ function resolveFormat (setting, tech) {
   return tech === 'dot' ? dot : thermal
 }
 
-// 打印機是否具備可用目標（CUPS 佇列或 IP 直連）
+// 打印機是否具備可用目標（IP 直連）
 function hasTarget (p) {
-  return !!(p && (p.queue || p.ip))
+  return !!(p && p.ip)
 }
 
-// 打印機目標識別碼（CUPS 佇列優先；供串行佇列與跳飛比對用）
+// 打印機目標識別碼（供串行佇列與跳飛比對用）
 function targetKey (p) {
-  if (p && p.queue) return 'queue:' + String(p.queue).trim()
   return 'ip:' + (p && p.ip ? p.ip : 'noip') + ':' + (p && p.port || 9100)
 }
 
 // 打印機技術類型相容性：熱敏(thermal)只跳熱敏機、針式(dot)只跳針式機，避免跨技術誤印
 function sameTech (a, b) {
-  return ((a && a.tech) || 'thermal') === ((b && b.tech) || 'thermal')
+  return ((a && a.tech) || 'dot') === ((b && b.tech) || 'dot')
 }
 
 // 從 Printer 設置中解析某檔口/位置的打印機配置（含抬頭/紙寬/錢箱/複寫）
@@ -2008,7 +2227,7 @@ function resolvePrinter (setting, key) {
   const chosen = hasTarget(found)
     ? found
     : (list.find(p => p.role === key && hasTarget(p)) || list.find(p => p.role === 'kitchen' && hasTarget(p)) || null)
-  const tech = (chosen && chosen.tech) || 'thermal'
+  const tech = (chosen && chosen.tech) || 'dot'
   const base = {
     shopName: (setting && setting.shopName) || '',
     phone: (setting && setting.phone) || '',
@@ -2032,9 +2251,10 @@ function resolvePrinter (setting, key) {
     dpi: 180
   }
   if (chosen) {
-    return Object.assign({}, base, toPlain(chosen))
+    return Object.assign({}, base, toPlain(chosen), { tech })
   }
   return Object.assign({}, base, {
+    tech,
     ip: (setting && setting.ip) || '',
     port: (setting && setting.port) || 9100,
     paperWidth: (setting && setting.paperWidth) || 58,
@@ -2048,7 +2268,7 @@ function resolvePrinter (setting, key) {
 function resolveTerminalPrinter (setting, cfg) {
   const chosen = (cfg && hasTarget(cfg)) ? cfg : null
   if (!chosen) return null
-  const tech = (chosen && chosen.tech) || 'thermal'
+  const tech = (chosen && chosen.tech) || 'dot'
   const base = {
     shopName: (setting && setting.shopName) || '',
     phone: (setting && setting.phone) || '',
@@ -2071,7 +2291,7 @@ function resolveTerminalPrinter (setting, cfg) {
     dotImageWeight: (setting && setting.dotImageWeight) || (setting && setting.imageWeight) || 400,
     dpi: 180
   }
-  return Object.assign({}, base, toPlain(chosen))
+  return Object.assign({}, base, toPlain(chosen), { tech })
 }
 
 // 根據小票類型解析目標位置打印機（可被 ticketTargets 覆蓋）
@@ -2104,90 +2324,21 @@ function resolveTicketPrinter (setting, type) {
   return resolvePrinter(setting, defaultKey)
 }
 
-// 打印佇列：按目標（CUPS 佇列或 ip:port）串行（FIFO），避免同一目標併發導致後者 Connection Refused/Timeout
+// 打印佇列：按目標（ip:port）串行（FIFO），避免同一目標併發導致後者 Connection Refused/Timeout
 const printQueues = {}
 
-// 建構 CUPS job-name：檔口|枱號|單號（供 PrintMonitor 解析顯示）
-function buildJobName (printer, meta) {
-  const station = (printer && printer.name) || 'POS'
-  const desk = (meta && meta.deskNo != null && String(meta.deskNo) !== '' && String(meta.deskNo) !== '0') ? String(meta.deskNo) : ''
-  const no = (meta && meta.orderNo) ? String(meta.orderNo) : ''
-  return [station, desk, no].join('|')
-}
-
-function print (printer, data, retries, meta) {
+function print (printer, data, retries, meta, deadline) {
   const key = targetKey(printer)
   const prev = printQueues[key] || Promise.resolve()
-  const task = prev.then(() => rawPrint(printer, data, retries, meta))
+  const task = prev.then(() => rawPrint(printer, data, retries, meta, deadline))
   // 無論成功或失敗，佇列都要繼續前進（錯誤由呼叫方 await 捕獲）
   printQueues[key] = task.then(() => {}, () => {})
   return task
 }
 
-// 單次列印：有 CUPS 佇列則走 IPP 送單，否則回退 IP 直連；失敗自動重試
-function rawPrint (printer, data, retries, meta) {
-  if (printer && printer.queue) {
-    return rawPrintViaCups(printer, data, retries, meta)
-  }
-  return rawPrintViaTcp(printer, data, retries)
-}
-
-// CUPS 佇列送單：以 IPP Print-Job 傳送 Raw ESC/POS，由 CUPS 統一管理佇列（解決多工作站卡單/漏單）
-async function rawPrintViaCups (printer, data, retries, meta) {
-  const queue = String(printer.queue).trim()
-  const copies = Math.max(1, printer.copies || 1)
-  const parts = []
-  for (let i = 0; i < copies; i++) parts.push(data)
-  if (printer.cashDrawer) parts.push(cashDrawerKick())
-  const buffer = Buffer.concat(parts)
-  const maxRetries = (retries == null) ? (printer.retries == null ? 1 : printer.retries) : retries
-  // CUPS 列印完成逾時(ms)：送單後輪詢 Job 狀態，逾時未完成即判離線跳飛備援機
-  const timeoutMs = printer.timeout || 8000
-  const retryDelayMs = printer.retryDelay || 400
-  let attempt = 0
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      const { jobId } = await cups.printRaw(queue, buffer, { jobName: buildJobName(printer, meta) })
-      await waitCupsJob(queue, jobId, timeoutMs)
-      return
-    } catch (e) {
-      if (attempt < maxRetries) {
-        attempt++
-        console.log(`[Printer] CUPS 佇列「${queue}」送單失敗（${e.message}），重試 ${attempt}/${maxRetries}`)
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs))
-      } else {
-        throw e
-      }
-    }
-  }
-}
-
-// 輪詢 CUPS Job 狀態直到完成；逾時/被終止則取消任務並 throw（觸發跳飛備援機）
-async function waitCupsJob (queue, jobId, timeoutMs) {
-  if (jobId == null) return
-  const start = Date.now()
-  let lastState = ''
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    if (Date.now() - start >= timeoutMs) {
-      await cups.cancelJob(queue, jobId).catch(() => {})
-      throw new Error(`CUPS 佇列「${queue}」列印逾時（${timeoutMs}ms，狀態 ${lastState || '未知'}）`)
-    }
-    let job
-    try {
-      job = await cups.getJobAttributes(queue, jobId)
-    } catch (e) {
-      // 查不到 Job 狀態（已完成被清理/查詢失敗）：視為已送達，不誤跳飛
-      return
-    }
-    lastState = job.state
-    if (job.state === 'completed') return
-    if (job.state === 'aborted' || job.state === 'canceled') {
-      throw new Error(`CUPS 佇列「${queue}」任務被終止（${job.state}）`)
-    }
-    await new Promise(resolve => setTimeout(resolve, 500))
-  }
+// 單次列印：IP 直連；失敗自動重試
+function rawPrint (printer, data, retries, meta, deadline) {
+  return rawPrintViaTcp(printer, data, retries, deadline)
 }
 
 // 送出 DLE EOT 即時狀態查詢（0x10 0x04 n），等待印表機回傳 1 Byte 狀態
@@ -2213,8 +2364,29 @@ function queryStatus (client, n, timeoutMs) {
   })
 }
 
-// IP 直連列印（原有 TCP :9100 路徑，作為無 CUPS 佇列時的備援）
-function rawPrintViaTcp (printer, data, retries) {
+// DLE EOT 即時狀態檢查（缺紙/開蓋/離線/錯誤）；不支援或逾時（null）則略過不阻擋。
+// 印前預檢與印後確認共用；針式打印機可額外回報錯誤狀態（DLE EOT 3）。
+async function checkPrinterStatus (client, statusTimeout) {
+  // DLE EOT 4：紙卷感測器（bit5+bit6 同時為 1 = 缺紙）
+  const paper = await queryStatus(client, 4, statusTimeout)
+  if (paper != null && (paper & 0x60) === 0x60) throw new Error('打印機缺紙')
+  // DLE EOT 2：離線/開蓋
+  const offline = await queryStatus(client, 2, statusTimeout)
+  if (offline != null) {
+    if (offline & 0x20) throw new Error('打印機開蓋')
+    if (offline & 0x08) throw new Error('打印機離線')
+  }
+  // DLE EOT 3：錯誤狀態（針機可回報可回復/不可回復錯誤）
+  const errStat = await queryStatus(client, 3, statusTimeout)
+  if (errStat != null) {
+    if (errStat & 0x40) throw new Error('打印機不可回復錯誤')
+    if (errStat & 0x08) throw new Error('打印機錯誤')
+  }
+}
+
+// IP 直連列印（TCP :9100 路徑）
+// deadline：整條跳飛鏈的截止時間戳（ms），逾時即不再重試；剩餘時間不足時縮短本次連線逾時
+function rawPrintViaTcp (printer, data, retries, deadline) {
   return new Promise((resolve, reject) => {
     if (!printer || !printer.ip) {
       reject(new Error('未設置打印機 IP 地址'))
@@ -2227,14 +2399,23 @@ function rawPrintViaTcp (printer, data, retries) {
     const statusTimeout = printer.statusTimeout || 600
     let attempt = 0
     const tryOnce = () => {
-      const client = net.connect({ host: printer.ip, port: printer.port || 9100, timeout })
+      if (deadline && Date.now() >= deadline) {
+        reject(new Error('跳飛總時間已用盡'))
+        return
+      }
+      const remaining = deadline ? (deadline - Date.now()) : timeout
+      const connectTimeout = Math.max(1, Math.min(timeout, remaining))
+      const client = net.connect({ host: printer.ip, port: printer.port || 9100, timeout: connectTimeout })
       let done = false
       const finish = (err) => {
         if (done) return
         done = true
         client.removeAllListeners()
         client.destroy()
-        if (err && attempt < maxRetries) {
+        if (err && err.blocked) {
+          // 預檢攔截（缺紙/離線/開蓋，未送出）：不重試，直接上報等待補紙/補單
+          reject(err)
+        } else if (err && attempt < maxRetries && (!deadline || Date.now() < deadline)) {
           attempt++
           console.log(`[Printer] ${printer.name || printer.ip} 連接失敗（${err.message}），重試 ${attempt}/${maxRetries}`)
           setTimeout(tryOnce, retryDelayMs)
@@ -2246,23 +2427,28 @@ function rawPrintViaTcp (printer, data, retries) {
       }
       client.on('connect', async () => {
         try {
-          // DLE EOT 即時狀態預檢（缺紙/開蓋/離線）；不支援或逾時則略過不阻擋
+          // DLE EOT 即時狀態預檢（缺紙/開蓋/離線）；不支援或逾時則略過不阻擋。
+          // 預檢失敗 = 未送出，標記 blocked，交由上層攔截（不跳飛），等補紙/補單。
           if (printer.statusCheck !== false) {
-            // DLE EOT 4：紙卷感測器（bit5+bit6 同時為 1 = 缺紙）
-            const paper = await queryStatus(client, 4, statusTimeout)
-            if (paper != null && (paper & 0x60) === 0x60) throw new Error('打印機缺紙')
-            // DLE EOT 2：離線/開蓋/錯誤
-            const offline = await queryStatus(client, 2, statusTimeout)
-            if (offline != null) {
-              if (offline & 0x20) throw new Error('打印機開蓋')
-              if (offline & 0x08) throw new Error('打印機離線')
+            try {
+              await checkPrinterStatus(client, statusTimeout)
+            } catch (e) {
+              e.blocked = true
+              throw e
             }
           }
           const parts = []
           for (let i = 0; i < copies; i++) parts.push(data)
           if (printer.cashDrawer) parts.push(cashDrawerKick())
-          // end(data, cb)：資料 flush 完成（FIN 送出）後才 resolve，確保完整送出、不依賴對端 close
-          client.end(Buffer.concat(parts), () => finish())
+          const buf = Buffer.concat(parts)
+          // 寫入資料（先唔好即時 end），再做「印後即時狀態確認」；
+          // 列印中途斷電會觸發 error/close，由 finish 接手 → 跳飛備援機。
+          client.write(buf)
+          if (printer.statusCheck !== false) {
+            await checkPrinterStatus(client, statusTimeout)
+          }
+          // end(cb)：資料 flush 完成（FIN 送出）後才 resolve，確保完整送出、不依賴對端 close
+          client.end(() => finish())
         } catch (err) {
           finish(err)
         }
@@ -2301,6 +2487,23 @@ async function emitFailover (from, to, meta) {
   }
 }
 
+// 預檢攔截通知（缺紙/離線/開蓋，未送廚）：推播給 POS，醒目提示補紙/補單
+async function emitPrintBlocked (station, reason, meta) {
+  try {
+    const io = require('./SocketIO').getIO()
+    if (io) {
+      io.emit('printBlocked', {
+        station: station || '',
+        reason: reason || '打印機未送出',
+        deskNo: (meta && meta.deskNo != null && String(meta.deskNo) !== '' && String(meta.deskNo) !== '0') ? String(meta.deskNo) : '',
+        orderNo: (meta && meta.orderNo) ? String(meta.orderNo) : ''
+      })
+    }
+  } catch (e) {
+    // SocketIO 尚未初始化時忽略
+  }
+}
+
 // 跳飛提示標題票：備用機出單時在票頭印「備用機出單／原檔口」提示（文字/圖像模式通用）
 function buildFailoverBanner (printer, fromStation) {
   const w = lineWidthOf(printer.paperWidth)
@@ -2322,24 +2525,30 @@ function buildFailoverBanner (printer, fromStation) {
   return concat(parts)
 }
 
-// 建構跳飛候選清單：備援機(fallbackTo) → 廚房通用機（role=kitchen），僅同技術類型、非主機本身
-// 供 printWithFailover 與 printQueue worker 共用，確保兩者跳飛策略一致
+// 建構跳飛候選清單：第一備援機(fallbackTo) → 第二備援機(fallbackTo2) → 廚房通用機（role=kitchen）
+// 僅同技術類型、非主機本身、不重複目標；供 printWithFailover 與 printQueue worker 共用，確保兩者跳飛策略一致
 function buildFallbackPlan (setting, printer) {
   const plan = []
   if (!printer) return plan
-  const stationName = (printer && printer.name) || (printer && printer.queue) || (printer && printer.ip) || '打印機'
-  // 備援機（fallbackTo，僅同技術類型：熱敏→熱敏、針式→針式）
-  if (printer.fallbackTo) {
-    const fb = resolvePrinter(setting, printer.fallbackTo)
-    if (fb && hasTarget(fb) && targetKey(fb) !== targetKey(printer) && sameTech(printer, fb)) {
-      plan.push({ printer: fb, label: printer.fallbackTo })
-    }
+  const stationName = (printer && printer.name) || (printer && printer.ip) || '打印機'
+  const push = (name) => {
+    if (!name) return
+    const p = resolvePrinter(setting, name)
+    if (!p || !hasTarget(p)) return
+    if (targetKey(p) === targetKey(printer)) return
+    if (plan.some(c => targetKey(c.printer) === targetKey(p))) return
+    if (!sameTech(printer, p)) return
+    plan.push({ printer: p, label: name })
   }
-  // 廚房通用機（最後防線）：第一台 role=kitchen 且有目標，且非主機/備援機本身，且技術類型相同
+  // 第一備援機 → 第二備援機（僅同技術類型：熱敏→熱敏、針式→針式）
+  push(printer.fallbackTo)
+  push(printer.fallbackTo2)
+  // 廚房通用機（最後防線）：第一台 role=kitchen 且有目標，且非主機/備援機本身，且技術類型相同、未重複
   const list = (setting && setting.printers) ? setting.printers : []
   const kitchen = list.find(p => p.role === 'kitchen' && hasTarget(p) &&
-    p.name !== stationName && p.name !== printer.fallbackTo &&
-    targetKey(p) !== targetKey(printer) && sameTech(printer, p))
+    p.name !== stationName && p.name !== printer.fallbackTo && p.name !== printer.fallbackTo2 &&
+    targetKey(p) !== targetKey(printer) && sameTech(printer, p) &&
+    !plan.some(c => targetKey(c.printer) === targetKey(p)))
   if (kitchen) {
     const kp = resolvePrinter(setting, kitchen.name)
     if (kp && hasTarget(kp)) plan.push({ printer: kp, label: kitchen.name })
@@ -2347,25 +2556,64 @@ function buildFallbackPlan (setting, printer) {
   return plan
 }
 
+// 跳飛總時間（毫秒）快取：整條跳飛鏈（主機重試 + 備援機 + 廚房通用機）合計的預算上限
+let failoverTimeoutCache = { value: 45000, at: 0 }
+const FAILOVER_TIMEOUT_TTL = 30000
+
+async function getFailoverTimeoutMs () {
+  const now = Date.now()
+  if (now - failoverTimeoutCache.at < FAILOVER_TIMEOUT_TTL) return failoverTimeoutCache.value
+  try {
+    const PosSetting = require('../models/PosSetting')
+    const s = await PosSetting.findOne().lean().exec()
+    const sec = (s && s.failoverTimeout) || 45
+    failoverTimeoutCache = { value: sec * 1000, at: now }
+  } catch (e) {
+    // 讀取失敗沿用預設 45 秒
+  }
+  return failoverTimeoutCache.value
+}
+
+// 計算本次邏輯列印任務（整條跳飛鏈）的截止時間戳（ms），供主機與備援機共用
+async function computeDeadline () {
+  return Date.now() + await getFailoverTimeoutMs()
+}
+
 // 打印並在主機失敗時自動跳飛：備援機(fallbackTo) → 廚房通用機（role=kitchen）
 // 全程不 throw，回傳 { ok, printedTo }；失敗僅記錄，確保單一檔口離線不中斷其他檔口。
-async function printWithFailover (setting, printer, data, meta) {
-  const stationName = (printer && printer.name) || (printer && printer.queue) || (printer && printer.ip) || '打印機'
+// deadline：整條跳飛鏈的截止時間戳（ms），逾時即停止，避免離線檔口拖垮出單。
+async function printWithFailover (setting, printer, data, meta, deadline) {
+  if (deadline == null) deadline = await computeDeadline()
+  const stationName = (printer && printer.name) || (printer && printer.ip) || '打印機'
   // 1) 主機
   if (printer && hasTarget(printer)) {
+    if (deadline && Date.now() >= deadline) {
+      console.log(`[Printer] ${stationName} 跳飛總時間已用盡，停止嘗試`)
+      return { ok: false, printedTo: '' }
+    }
     try {
-      await print(printer, data, undefined, meta)
+      await print(printer, data, undefined, meta, deadline)
       return { ok: true, printedTo: stationName }
     } catch (e) {
+      // 預檢攔截（缺紙/離線/開蓋，未送出）：不跳飛，通知前台補紙/補單
+      if (e && e.blocked) {
+        console.log(`[Printer] ${stationName} 預檢攔截（${e.message}），不跳飛，等待補紙/補單`)
+        await emitPrintBlocked(stationName, e.message, meta)
+        return { ok: false, blocked: true, reason: e.message }
+      }
       console.log(`[Printer] ${stationName} 列印失敗：${e.message}，嘗試跳飛備援機`)
     }
   }
   // 2) 依 buildFallbackPlan 依序跳飛（備援機 → 廚房通用機）
   for (const cand of buildFallbackPlan(setting, printer)) {
+    if (deadline && Date.now() >= deadline) {
+      console.log(`[Printer] ${stationName} 跳飛總時間已用盡，停止跳飛`)
+      break
+    }
     const target = cand.printer
     const label = cand.label
     try {
-      await print(target, Buffer.concat([buildFailoverBanner(target, stationName), data]), undefined, meta)
+      await print(target, Buffer.concat([buildFailoverBanner(target, stationName), data]), undefined, meta, deadline)
       console.log(`[Printer] 已跳飛至「${label}」`)
       await emitFailover(stationName, label, meta)
       return { ok: true, printedTo: label }
@@ -2380,6 +2628,7 @@ async function printWithFailover (setting, printer, data, meta) {
 module.exports = {
   DEFAULT_FORMAT,
   cashDrawerKick,
+  setPosSettingCache,
   resolvePrinter,
   resolveTerminalPrinter,
   resolveTicketPrinter,
@@ -2401,11 +2650,13 @@ module.exports = {
   buildReportTicket,
   print,
   rawPrint,
+  computeDeadline,
   targetKey,
   hasTarget,
   sameTech,
   buildFailoverBanner,
   emitFailover,
+  emitPrintBlocked,
   buildFallbackPlan,
   // 按收銀機 terminalCode 觸發對應的錢箱
   openDrawerByTerminal: async function (terminalCode) {
@@ -2417,17 +2668,6 @@ module.exports = {
       if (!terminal) return false
       const hasDrawer = (terminal.receipt && terminal.receipt.cashDrawer) || !!terminal.cashDrawer
       if (!hasDrawer) return false
-      // CUPS 佇列優先：收據印表機若走 CUPS，錢箱 kick 一併由 CUPS 送出
-      const queue = (terminal.receipt && terminal.receipt.queue) || ''
-      if (queue) {
-        try {
-          await cups.printRaw(queue, cashDrawerKick(), { jobName: 'cashdrawer' })
-          return true
-        } catch (e) {
-          console.log('[Printer] 錢箱(CUPS)觸發失敗：' + e.message)
-          return false
-        }
-      }
       // 回退舊欄位 printerIp
       const ip = (terminal.receipt && terminal.receipt.ip) || terminal.printerIp || ''
       const port = (terminal.receipt && terminal.receipt.port) || terminal.printerPort || 9100

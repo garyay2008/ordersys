@@ -111,6 +111,9 @@ mongodb/*
 # macOS 系統檔
 .DS_Store
 
+# 授權簽章私鑰（絕對不可上傳）
+tools/.license.private.key
+
 # 備份檔 / 原始資料 / 截圖（不進版本控制）
 *.bak
 *.bak_*

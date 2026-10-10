@@ -72,6 +72,37 @@
 
       <el-divider></el-divider>
 
+      <div class="maint-section">
+        <h3 class="section-title">系統日誌</h3>
+        <div class="log-toolbar">
+          <el-select v-model="logLevel" size="small" style="width: 120px;" @change="fetchLogs">
+            <el-option label="全部" value=""></el-option>
+            <el-option label="INFO" value="info"></el-option>
+            <el-option label="WARN" value="warn"></el-option>
+            <el-option label="ERROR" value="error"></el-option>
+          </el-select>
+          <el-select v-model="logLimit" size="small" style="width: 110px;" @change="fetchLogs">
+            <el-option label="200 行" :value="200"></el-option>
+            <el-option label="500 行" :value="500"></el-option>
+            <el-option label="1000 行" :value="1000"></el-option>
+          </el-select>
+          <el-switch v-model="autoRefresh" active-text="自動刷新"></el-switch>
+          <el-button size="small" icon="el-icon-refresh" @click="fetchLogs" :loading="logLoading">重新整理</el-button>
+          <el-button size="small" icon="el-icon-download" @click="downloadLogs">下載</el-button>
+          <el-button size="small" type="danger" icon="el-icon-delete" @click="clearLogs">清空</el-button>
+        </div>
+        <div class="log-console" ref="logConsole">
+          <div v-for="(l, i) in logs" :key="i" class="log-line" :class="'log-' + l.level">
+            <span class="log-ts">{{ l.ts }}</span>
+            <span class="log-level">{{ l.level.toUpperCase() }}</span>
+            <span class="log-msg">{{ l.message }}</span>
+          </div>
+          <div v-if="!logs.length" class="log-empty">暫無日誌</div>
+        </div>
+      </div>
+
+      <el-divider></el-divider>
+
       <div class="maint-section danger-section">
         <h3 class="section-title" style="color: #f56c6c;">危險操作</h3>
         <div class="btn-group">
@@ -104,10 +135,84 @@ export default {
         clear: false,
         clearCombos: false
       },
-      importIsmCombosMode: 'commodity'
+      importIsmCombosMode: 'commodity',
+      logs: [],
+      logLevel: '',
+      logLimit: 500,
+      autoRefresh: true,
+      logLoading: false,
+      logTimer: null
+    }
+  },
+  mounted () {
+    this.fetchLogs()
+    this.startAutoRefresh()
+  },
+  beforeDestroy () {
+    this.stopAutoRefresh()
+  },
+  watch: {
+    autoRefresh (val) {
+      if (val) this.startAutoRefresh()
+      else this.stopAutoRefresh()
     }
   },
   methods: {
+    fetchLogs () {
+      this.logLoading = true
+      this.$axios.get('/api/systemmaint/logs', { params: { limit: this.logLimit, level: this.logLevel } }).then(res => {
+        this.logs = res.data.logs || []
+        this.$nextTick(this.scrollToBottom)
+      }).catch(err => {
+        this.$message.error('載入日誌失敗：' + ((err.response && err.response.data && err.response.data.msg) || err.message))
+      }).finally(() => {
+        this.logLoading = false
+      })
+    },
+
+    scrollToBottom () {
+      const el = this.$refs.logConsole
+      if (el) el.scrollTop = el.scrollHeight
+    },
+
+    startAutoRefresh () {
+      if (this.logTimer) return
+      this.logTimer = setInterval(() => this.fetchLogs(), 3000)
+    },
+
+    stopAutoRefresh () {
+      if (this.logTimer) {
+        clearInterval(this.logTimer)
+        this.logTimer = null
+      }
+    },
+
+    downloadLogs () {
+      const text = this.logs.map(l => `${l.ts} [${l.level.toUpperCase()}] ${l.message}`).join('\n')
+      const blob = new Blob([text], { type: 'text/plain' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `logs_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    },
+
+    clearLogs () {
+      this.$confirm('確定要清空系統日誌嗎？', '警告', {
+        confirmButtonText: '確定清空',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.$axios.post('/api/systemmaint/logs/clear').then(res => {
+          this.$message.success(res.data.msg)
+          this.logs = []
+        }).catch(err => {
+          this.$message.error('清空失敗：' + ((err.response && err.response.data && err.response.data.msg) || err.message))
+        })
+      }).catch(() => {})
+    },
+
     backupDB () {
       this.loading.backup = true
       this.$axios({
@@ -345,5 +450,54 @@ export default {
 }
 .danger-hint {
   color: #f56c6c;
+}
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.log-console {
+  height: 360px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  line-height: 1.7;
+}
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-ts {
+  color: #6a9955;
+  margin-right: 8px;
+}
+.log-level {
+  display: inline-block;
+  min-width: 48px;
+  margin-right: 8px;
+  font-weight: 600;
+}
+.log-info .log-level {
+  color: #4fc1ff;
+}
+.log-warn .log-level {
+  color: #dcdcaa;
+}
+.log-error .log-level {
+  color: #f48771;
+}
+.log-msg {
+  color: #d4d4d4;
+}
+.log-empty {
+  color: #6e6e6e;
+  text-align: center;
+  padding: 20px;
 }
 </style>

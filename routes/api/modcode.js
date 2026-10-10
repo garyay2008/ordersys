@@ -10,6 +10,11 @@ function emitModcodeChanged () {
   if (io) io.emit('modcodeChanged')
 }
 
+function emitMenuChanged () {
+  const io = socketio.getIO()
+  if (io) io.emit('menuChanged')
+}
+
 // 渠道過濾：舊資料沒有 channels 欄位時視為適用所有渠道
 function channelFilter (channel) {
   if (!channel) return {}
@@ -43,7 +48,14 @@ router.get(
 // @desc 点餐端获取改码列表（可帶 ?channel=pos|qr 過濾渠道）
 // @access public
 router.get('/list', (req, res) => {
-  ModCode.find(channelFilter(req.query.channel))
+  const base = channelFilter(req.query.channel)
+  const includeSoldOut = req.query.includeSoldOut === '1' || req.query.includeSoldOut === 'true'
+  const query = includeSoldOut
+    ? base
+    : (base.$or
+      ? { $and: [base, { soldOut: { $ne: true } }] }
+      : Object.assign({}, base, { soldOut: { $ne: true } }))
+  ModCode.find(query)
     .sort({ sort: 1, date: 1 })
     .then(result => res.json(result))
     .catch(err => {
@@ -77,7 +89,15 @@ router.post(
       res.status(400).send('类别名不能为空！')
       return
     }
-    const cat = new ModCodeCategory({ name, code: (req.body.code || '').trim(), sort: req.body.sort || 0, mandatory: req.body.mandatory === true || req.body.mandatory === 'true' })
+    const cat = new ModCodeCategory({
+      name,
+      code: (req.body.code || '').trim(),
+      sort: req.body.sort || 0,
+      mandatory: req.body.mandatory === true || req.body.mandatory === 'true',
+      minSelect: Number(req.body.minSelect) || 0,
+      maxSelect: Number(req.body.maxSelect) || 0,
+      commodityIds: Array.isArray(req.body.commodityIds) ? req.body.commodityIds : []
+    })
     cat
       .save()
       .then(() => { emitModcodeChanged(); res.send('改码类别添加成功！') })
@@ -105,6 +125,9 @@ router.post(
     if (req.body.code !== undefined) update.code = req.body.code
     if (req.body.sort !== undefined) update.sort = req.body.sort
     if (req.body.mandatory !== undefined) update.mandatory = req.body.mandatory === true || req.body.mandatory === 'true'
+    if (req.body.minSelect !== undefined) update.minSelect = Number(req.body.minSelect) || 0
+    if (req.body.maxSelect !== undefined) update.maxSelect = Number(req.body.maxSelect) || 0
+    if (req.body.commodityIds !== undefined) update.commodityIds = Array.isArray(req.body.commodityIds) ? req.body.commodityIds : []
     ModCodeCategory.findByIdAndUpdate(id, { $set: update }, { new: true })
       .then(cat => {
         if (!cat) { res.status(400).send('找不到該類別！'); return }
@@ -214,6 +237,34 @@ router.post(
       console.log(err)
       res.status(400).send('排序更新失敗，請重試！')
     }
+  }
+)
+
+// $route POST api/modcode/soldout
+// @desc 沽清/重售改碼（POS 前台長按使用）
+// @access private
+router.post(
+  '/soldout',
+  passport.authenticate('jwt', { session: false }),
+  (req, res) => {
+    ModCode.findByIdAndUpdate(
+      req.body._id,
+      { $set: { soldOut: !!req.body.soldOut } },
+      { new: true }
+    )
+      .then(mod => {
+        if (!mod) {
+          res.status(400).send('找不到該改码！')
+          return
+        }
+        emitModcodeChanged()
+        emitMenuChanged()
+        res.send(mod.soldOut ? '改码已沽清！' : '改码已重售！')
+      })
+      .catch(err => {
+        console.log(err)
+        res.status(400).send('更新失败，请重试！')
+      })
   }
 )
 

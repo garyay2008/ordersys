@@ -63,8 +63,13 @@
       <el-form ref="comboForm" :model="comboForm" :rules="rules" label-width="90px">
         <el-row :gutter="16">
           <el-col :span="6">
-            <el-form-item label="套餐名稱" prop="name">
+            <el-form-item label="POS 套餐名稱" prop="name">
               <el-input v-model="comboForm.name" placeholder="如：吉祥如意四人合菜"></el-input>
+            </el-form-item>
+          </el-col>
+          <el-col :span="6">
+            <el-form-item label="QR CODE 套餐名稱">
+              <el-input v-model="comboForm.qrName" placeholder="客人手機顯示名稱，留空同 POS 名"></el-input>
             </el-form-item>
           </el-col>
           <el-col :span="6">
@@ -110,6 +115,24 @@
         </el-row>
 
         <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="QR 顯示自動品項名">
+              <el-switch v-model="comboForm.showFixedNames" active-text="開" inactive-text="關"></el-switch>
+              <div class="lbl hint">開啟後，QR 套餐選擇頁會顯示自動選取（固定）品項的名稱；POS 永遠顯示，不受影響。</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="不列印套餐名">
+              <el-switch v-model="comboForm.noPrintComboName" active-text="開" inactive-text="關"></el-switch>
+              <div class="lbl hint">開啟後，後廚單/追單/上菜紙/全單明細不印套餐名標題，直接列印套餐內各貨品（收據仍保留套餐名以作結算）。</div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16">
           <el-col :span="24">
             <el-divider content-position="left">主食綁定（點擊主食貨品即自動帶出本套餐）</el-divider>
             <div class="split-box">
@@ -124,6 +147,7 @@
                   <el-option v-for="c in commodityOptions" :key="c._id" :label="itemLabel(c)" :value="c._id"></el-option>
                 </el-select>
                 <el-button type="danger" size="mini" icon="el-icon-delete" @click="comboForm.mainDishes.splice(di, 1)"></el-button>
+                <span v-if="isDanglingId(d.commodityId)" class="dangling-warn">⚠ 貨品已不存在，請重新選擇</span>
               </div>
             </div>
           </el-col>
@@ -198,7 +222,10 @@
             <el-divider content-position="left">窗口 {{ wi + 2 }} · {{ win.mode === 'auto' ? '自動選取（客人唔使揀）' : '選 N 項' }}</el-divider>
             <div class="win-box">
               <div class="win-header">
-                <span class="win-title">{{ win.mode === 'auto' ? '自動選取貨品' : '選取貨品' }}</span>
+                <el-select v-model="win.mode" size="small" style="width: 110px;" @change="onWinModeChange(win)">
+                  <el-option label="選 N 項" value="select"></el-option>
+                  <el-option label="自動選取" value="auto"></el-option>
+                </el-select>
                 <template v-if="win.mode === 'select'">
                   <span class="lbl">選</span>
                   <el-input-number v-model="win.count" :min="1" :max="99" size="small"></el-input-number>
@@ -208,12 +235,24 @@
               </div>
               <div v-if="!win.items.length" class="win-empty">暫無貨品，按「+ 添加貨品」加入</div>
               <div v-for="(item, ii) in win.items" :key="ii" class="win-item">
-                <el-select v-model="item.commodityId" placeholder="輸入編碼 / 選擇貨品" filterable default-first-option style="flex: 1;" @change="(val) => onPickItem(item, val)">
-                  <el-option v-for="c in commodityOptions" :key="c._id" :label="itemLabel(c)" :value="c._id"></el-option>
-                </el-select>
-                <span class="lbl">加價</span>
-                <el-input-number v-model="item.upgradePrice" :min="0" :precision="2" :step="1" size="small" controls-position="right" style="width: 110px;" :disabled="win.uniformUpgradeEnabled"></el-input-number>
-                <el-button type="danger" size="mini" icon="el-icon-delete" @click="win.items.splice(ii, 1)"></el-button>
+                <div class="win-item-row">
+                  <el-select v-model="item.commodityId" placeholder="輸入編碼 / 選擇貨品" filterable default-first-option style="flex: 1;" @change="(val) => onPickItem(item, val)">
+                    <el-option v-for="c in commodityOptions" :key="c._id" :label="itemLabel(c)" :value="c._id"></el-option>
+                  </el-select>
+                  <span class="lbl">加價</span>
+                  <el-input-number v-model="item.upgradePrice" :min="0" :precision="2" :step="1" size="small" controls-position="right" style="width: 110px;" :disabled="win.uniformUpgradeEnabled"></el-input-number>
+                  <el-button type="danger" size="mini" icon="el-icon-delete" @click="win.items.splice(ii, 1)"></el-button>
+                </div>
+                <div v-if="isDanglingId(item.commodityId)" class="dangling-warn">⚠ 貨品已不存在，請重新選擇</div>
+                <div class="win-item-mods">
+                  <span class="lbl">改碼</span>
+                  <div class="win-item-mods-body">
+                    <el-select v-model="item.modCategories" placeholder="選擇改碼類別(可多選)" multiple clearable size="small" style="flex: 1;">
+                      <el-option v-for="c in modCategoryObjs" :key="c.name" :label="modCatLabel(c)" :value="c.name"></el-option>
+                    </el-select>
+                    <div v-if="item.modCategories && item.modCategories.length" class="mod-cat-hint">{{ modCatHint(item.modCategories) }}</div>
+                  </div>
+                </div>
               </div>
               <el-collapse class="win-adv">
                 <el-collapse-item title="進階設定">
@@ -263,6 +302,8 @@ export default {
       departmentList: [],
       splitDepartmentList: [],
       commodityOptions: [],
+      commodityIdSet: null,
+      modCategoryObjs: [],
       weekdayOptions: [
         { value: 1, label: '一' },
         { value: 2, label: '二' },
@@ -290,18 +331,21 @@ export default {
     emptyForm () {
       return {
         name: '',
+        qrName: '',
         code: '',
         price: 0,
         department: '',
         showItems: true,
+        showFixedNames: true,
         showOnPos: true,
         showOnQr: true,
         autoPopup: true,
+        noPrintComboName: false,
         mainDishes: [],
         effectiveTime: { type: 'permanent', startDate: '', endDate: '', startTime: '', endTime: '', weekdays: [1, 2, 3, 4, 5], holidays: [] },
         departmentSplit: [],
         windows: [
-          { mode: 'auto', name: '自動選取', uniformUpgradeEnabled: false, uniformUpgrade: 0, groupPrice: 0, items: [] },
+          { mode: 'auto', name: '自動選取', count: 1, allowRepeat: false, uniformUpgradeEnabled: false, uniformUpgrade: 0, groupPrice: 0, items: [] },
           { mode: 'select', name: '', count: 1, allowRepeat: false, uniformUpgradeEnabled: false, uniformUpgrade: 0, groupPrice: 0, items: [] },
           { mode: 'select', name: '', count: 1, allowRepeat: false, uniformUpgradeEnabled: false, uniformUpgrade: 0, groupPrice: 0, items: [] },
           { mode: 'select', name: '', count: 1, allowRepeat: false, uniformUpgradeEnabled: false, uniformUpgrade: 0, groupPrice: 0, items: [] },
@@ -310,10 +354,18 @@ export default {
       }
     },
     emptyItem () {
-      return { commodityId: '', name: '', price: 0, upgradePrice: 0, modCategories: [] }
+      return { commodityId: '', name: '', price: 0, upgradePrice: 0, modCategories: [], modifiers: [], substitutes: [] }
     },
     normalizeItem (i) {
-      return { commodityId: i.commodityId || '', name: i.name || '', price: i.price || 0, upgradePrice: i.upgradePrice || 0, modCategories: i.modCategories || [] }
+      return {
+        commodityId: i.commodityId || '',
+        name: i.name || '',
+        price: i.price || 0,
+        upgradePrice: i.upgradePrice || 0,
+        modCategories: i.modCategories || [],
+        modifiers: Array.isArray(i.modifiers) ? i.modifiers.map(m => ({ modCodeId: m.modCodeId || '', name: m.name || '', price: m.price || 0, station: m.station || '' })) : [],
+        substitutes: Array.isArray(i.substitutes) ? i.substitutes.map(s => ({ name: s.name || '', price: s.price || 0, priceDelta: s.priceDelta || 0 })) : []
+      }
     },
     cloneEt (src) {
       const base = { type: 'permanent', startDate: '', endDate: '', startTime: '', endTime: '', weekdays: [1, 2, 3, 4, 5], holidays: [] }
@@ -347,6 +399,17 @@ export default {
           this.commodityOptions = opts
         })
         .catch(err => console.log(err))
+      this.$axios.get('/api/commodity/list')
+        .then(res => {
+          const set = {}
+          ;(res.data || []).forEach(c => { set[String(c._id)] = true })
+          this.commodityIdSet = set
+        })
+        .catch(err => console.log(err))
+    },
+    isDanglingId (id) {
+      if (!id || !this.commodityIdSet) return false
+      return !this.commodityIdSet[String(id)]
     },
     addCombo () {
       this.dialog = { show: true, title: '添加套餐', option: 'add' }
@@ -355,35 +418,31 @@ export default {
     mapRowToForm (row) {
       const windows = this.emptyForm().windows
       const groups = row.groups || []
-      const autoGroups = groups.filter(g => g.fixed)
-      const selectGroups = groups.filter(g => !g.fixed)
-      if (autoGroups.length) {
-        windows[0].name = autoGroups[0].name || '自動選取'
-        windows[0].uniformUpgradeEnabled = !!autoGroups[0].uniformUpgradeEnabled
-        windows[0].uniformUpgrade = autoGroups[0].uniformUpgrade || 0
-        windows[0].groupPrice = autoGroups[0].groupPrice || 0
-        windows[0].items = []
-        autoGroups.forEach(g => (g.items || []).forEach(i => windows[0].items.push(this.normalizeItem(i))))
-      }
-      selectGroups.forEach((g, si) => {
-        if (si >= 4) return
-        windows[si + 1].name = g.name || ''
-        windows[si + 1].count = g.max || g.min || 1
-        windows[si + 1].allowRepeat = !!g.allowRepeat
-        windows[si + 1].uniformUpgradeEnabled = !!g.uniformUpgradeEnabled
-        windows[si + 1].uniformUpgrade = g.uniformUpgrade || 0
-        windows[si + 1].groupPrice = g.groupPrice || 0
-        windows[si + 1].items = (g.items || []).map(i => this.normalizeItem(i))
+      // 依原始順序還原：fixed → 自動選取、非 fixed → 選 N 項（窗口 2~6 對應 groups[0..4]）
+      groups.forEach((g, gi) => {
+        if (gi >= windows.length) return
+        const win = windows[gi]
+        win.mode = g.fixed ? 'auto' : 'select'
+        win.name = g.name || ''
+        win.count = g.max || g.min || 1
+        win.allowRepeat = !!g.allowRepeat
+        win.uniformUpgradeEnabled = !!g.uniformUpgradeEnabled
+        win.uniformUpgrade = g.uniformUpgrade || 0
+        win.groupPrice = g.groupPrice || 0
+        win.items = (g.items || []).map(i => this.normalizeItem(i))
       })
       return {
         name: row.name || '',
+        qrName: row.qrName || '',
         code: row.code || '',
         price: row.price || 0,
         department: row.department || '',
         showItems: row.showItems !== false,
+        showFixedNames: row.showFixedNames !== false,
         showOnPos: row.showOnPos !== false,
         showOnQr: row.showOnQr !== false,
         autoPopup: row.autoPopup !== false,
+        noPrintComboName: !!row.noPrintComboName,
         mainDishes: (row.mainDishes || []).map(d => ({ commodityId: d.commodityId || '', name: d.name || '' })),
         effectiveTime: this.cloneEt(row.effectiveTime),
         departmentSplit: (row.departmentSplit || []).map(d => ({ department: d.department, amount: d.amount })),
@@ -416,6 +475,12 @@ export default {
     addItem (list) {
       list.push(this.emptyItem())
     },
+    onWinModeChange (win) {
+      if (win.mode === 'select') {
+        if (!win.count) this.$set(win, 'count', 1)
+        if (win.allowRepeat === undefined) this.$set(win, 'allowRepeat', false)
+      }
+    },
     applyUniformUpgrade (win) {
       const up = Number(win.uniformUpgrade) || 0
       ;(win.items || []).forEach(i => { i.upgradePrice = up })
@@ -443,6 +508,25 @@ export default {
       const no = c.code || c.plu || ''
       return (no ? no + ' ' : '') + c.name + ' ($' + c.price + ')'
     },
+    modCatRangeText (min, max) {
+      if (min > 0 && max > 0) return `（${min}~${max} 項）`
+      if (min > 0) return `（最少 ${min} 項）`
+      if (max > 0) return `（最多 ${max} 項）`
+      return ''
+    },
+    modCatLabel (c) {
+      const min = Number(c.minSelect) || 0
+      const max = Number(c.maxSelect) || 0
+      return (c.code ? c.code + ' ' : '') + c.name + this.modCatRangeText(min, max)
+    },
+    modCatHint (names) {
+      const rows = (names || []).map(n => this.modCategoryObjs.find(c => c.name === n)).filter(Boolean)
+      return rows.map(c => {
+        const min = Number(c.minSelect) || 0
+        const max = Number(c.maxSelect) || 0
+        return (c.code ? c.code + ' ' : '') + c.name + this.modCatRangeText(min, max)
+      }).join('　')
+    },
     addSplitRow () {
       this.comboForm.departmentSplit.push({ department: '', amount: 0 })
     },
@@ -464,7 +548,9 @@ export default {
           name: i.name,
           price: i.price || 0,
           upgradePrice: i.upgradePrice || 0,
-          modCategories: i.modCategories || []
+          modCategories: i.modCategories || [],
+          modifiers: Array.isArray(i.modifiers) ? i.modifiers.map(m => ({ modCodeId: m.modCodeId || '', name: m.name || '', price: m.price || 0, station: m.station || '' })) : [],
+          substitutes: Array.isArray(i.substitutes) ? i.substitutes.map(s => ({ name: s.name || '', price: s.price || 0, priceDelta: s.priceDelta || 0 })) : []
         }))
     },
     submitCombo (formName) {
@@ -523,13 +609,16 @@ export default {
         }
         const payload = {
           name: this.comboForm.name,
+          qrName: this.comboForm.qrName || '',
           code: this.comboForm.code,
           price: this.comboForm.price,
           department: this.comboForm.department,
           showItems: !!this.comboForm.showItems,
+          showFixedNames: this.comboForm.showFixedNames !== false,
           showOnPos: this.comboForm.showOnPos !== false,
           showOnQr: this.comboForm.showOnQr !== false,
           autoPopup: this.comboForm.autoPopup !== false,
+          noPrintComboName: !!this.comboForm.noPrintComboName,
           mainDishes: (this.comboForm.mainDishes || []).filter(d => d.commodityId && d.name).map(d => ({ commodityId: d.commodityId, name: d.name })),
           effectiveTime: this.cloneEt(this.comboForm.effectiveTime),
           departmentSplit: splitRows.map(r => ({ department: r.department.trim(), amount: Number(r.amount) || 0 })),
@@ -559,6 +648,9 @@ export default {
         this.splitDepartmentList = all.filter(d => d.showInSplit !== false)
       })
       .catch(err => console.log(err))
+    this.$axios.get('/api/modcode/categories')
+      .then(res => { this.modCategoryObjs = res.data || [] })
+      .catch(() => { this.modCategoryObjs = [] })
     window.onresize = () => { this.tableHeight = window.innerHeight - 160 }
   }
 }
@@ -615,9 +707,36 @@ export default {
 .win-empty{ font-size: 12px; color: #c0c4cc; margin-bottom: 8px; }
 .win-item{
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.win-item-row{
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+}
+.win-item-mods{
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.win-item-mods-body{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mod-cat-hint{
+  font-size: 11px;
+  color: #e6a23c;
+  line-height: 1.4;
+}
+.dangling-warn{
+  font-size: 12px;
+  color: #f56c6c;
+  line-height: 1.4;
 }
 .win-adv{ margin-top: 6px; }
 .adv-row{

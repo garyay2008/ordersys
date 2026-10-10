@@ -16,11 +16,12 @@
                 <div class="foods-wrapper" ref="foodsWrapper">
                     <ul>
                         <li v-for="(item,index) in goods" :key='index' class="food-list food-list-hook">
-                            <h1 class="title">{{item.name}}<span v-if="item.slotActive" class="slot-title-badge">{{ item.slotName }}時段</span></h1>
+                            <h1 class="title" v-if="!item.describe">{{item.name}}<span v-if="item.slotActive" class="slot-title-badge">{{ item.slotName }}時段</span></h1>
+                            <p class="category-desc" v-if="item.describe">{{ item.describe }}</p>
                             <ul>
                                 <li @click="selectFood(food,$event)" v-for="food in item.foods" :key='food._id' class="food-item">
                                     <div class="icon" v-if="qrSetting.showImages">
-                                        <img width="57" height="57" :src="food.img">
+                                        <img width="57" height="57" :src="food.img" loading="lazy" decoding="async">
                                     </div>
                                     <div class="contents">
                                         <div class="name-row">
@@ -54,10 +55,19 @@
                     </ul>
                 </div>
             </div>
-            <ShopCart ref="shopcart" :selectFoods="selectFoods" :effective-order="effectiveOrder" :price-override="cartPriceOverride" :showConfirm="showConfirm" :id="id" :sentItems="sentItems" :show-images="qrSetting.showImages" :show-discount="qrSetting.showDiscount" :service-charge-enabled="qrSetting.serviceChargeEnabled" :service-charge-rate="qrSetting.serviceChargeRate" @emptyCart="clearCartItems" @cart-count-changed="onCartCountChanged" @sent-panel-toggle="onSentPanelToggle"></ShopCart>
+            <ShopCart ref="shopcart" :selectFoods="selectFoods" :effective-order="effectiveOrder" :price-override="cartPriceOverride" :showConfirm="showConfirm" :id="id" :sentItems="sentItems" :hidden="overlayOpen" :show-images="qrSetting.showImages" :show-discount="qrSetting.showDiscount" :service-charge-enabled="qrSetting.serviceChargeEnabled" :service-charge-rate="qrSetting.serviceChargeRate" @emptyCart="clearCartItems" @cart-count-changed="onCartCountChanged" @sent-panel-toggle="onSentPanelToggle" @edit-mods="editCartMods"></ShopCart>
         </div>
-        <CommodityDetail ref="detail" :food="selectedFood" :qr-setting="qrSetting" @add="addCartItem"></CommodityDetail>
-        <ComboPicker ref="comboPicker" @add="addCartItem"></ComboPicker>
+        <el-dialog :visible.sync="showBundleDrinkPrompt" title="" width="80%" custom-class="bundle-drink-dialog" :show-close="false" :close-on-click-modal="false" append-to-body @closed="onBundleDrinkDialogClosed">
+            <div class="bundle-drink-body">
+                <p class="bundle-drink-title">你現在想加套餐的餐飲嗎？</p>
+                <div class="bundle-drink-actions">
+                    <el-button type="primary" round @click="chooseDrink">點餐飲</el-button>
+                    <el-button round @click="dismissBundleDrink">遲啲點</el-button>
+                </div>
+            </div>
+        </el-dialog>
+        <CommodityDetail ref="detail" :food="selectedFood" :qr-setting="qrSetting" @add="addCartItem" @update="updateCartItem" @open="overlayOpen = true" @close="overlayOpen = false"></CommodityDetail>
+        <ComboPicker ref="comboPicker" :mod-codes="modCodeList" :mod-code-categories="modCodeCategories" @add="addCartItem" @update="updateCartItem"></ComboPicker>
     </div>
 </template>
 
@@ -67,7 +77,7 @@ import ShopCart from '@/components/user/ShopCart'
 import CartControl from '@/components/user/CartControl'
 import CommodityDetail from '@/components/user/CommodityDetail'
 import ComboPicker from '@/components/user/ComboPicker'
-import { computeBundles } from '@/utils/bundle'
+import { computeBundles, isEffectiveNow } from '@/utils/bundle'
 export default {
   name: 'commoditiesList',
   props: ['id'],
@@ -83,10 +93,16 @@ export default {
       sentItems: [],
       modsMap: {},
       modCodeList: [],
+      modCodeCategories: [],
       matchingRules: [],
       bundleGroups: [],
       lastCartTotal: 0,
       sentPanelVisible: false,
+      showBundleDrinkPrompt: false,
+      overlayOpen: false,
+      bundleDrinkPromptDismissed: false,
+      lastMainDishCount: 0,
+      pendingDrinkCategoryIndex: -1,
       qrSetting: {
         showImages: true,
         showDescribe: true,
@@ -163,8 +179,12 @@ export default {
         this.$refs.comboPicker.show(food.isCombo ? food : food._comboData)
         return
       }
-      this.selectedFood = food
-      this.$refs.detail.show()
+      // 有規格 → 進詳情選規格
+      if (this.qrSetting.showSpecs && food.specs && food.specs.length) {
+        this.selectedFood = food
+        this.$refs.detail.show()
+      }
+      // 普通貨品 → 點擊名字/價錢不加數量（只能按 + 加數量）
     },
     openCombo (food) {
       this.$refs.comboPicker.show(food.isCombo ? food : food._comboData)
@@ -178,17 +198,27 @@ export default {
       this.selectedFood = food
       this.$refs.detail.show()
     },
-    addCartItem (item) {
+    cartItemKey (item) {
       let key = item._id
       if (item.spec) {
         key = item._id + '|' + item.spec
       } else if (item.isCombo) {
-        const parts = (item.contents || []).map(c => c.name).join('+')
+        const parts = (item.contents || []).map(c => {
+          let s = c.name
+          if (c.mods && c.mods.length) {
+            s += '[' + c.mods.map(m => (typeof m === 'string' ? m : (m.name || ''))).join(',') + ']'
+          }
+          return s
+        }).join('+')
         key = 'combo_' + item._id + '|' + parts
       }
       if (item.mods && item.mods.length) {
         key += '|mods:' + item.mods.map(m => (typeof m === 'string' ? m : m.name)).join(',')
       }
+      return key
+    },
+    addCartItem (item) {
+      const key = this.cartItemKey(item)
       const exist = this.cartItems.find(x => x.key === key)
       if (exist) {
         exist.count++
@@ -196,28 +226,208 @@ export default {
         this.cartItems.push(Object.assign({ key, count: 1, onSale: 0 }, item))
       }
     },
+    // 修改購物車內未送貨品的改碼：以 targetKey 找到原 cart item，替換 mods 與價格（保留數量）
+    updateCartItem ({ payload, targetKey }) {
+      const idx = this.cartItems.findIndex(x => x.key === targetKey)
+      if (idx < 0) return
+      const existing = this.cartItems[idx]
+      const key = this.cartItemKey(payload)
+      this.cartItems.splice(idx, 1, Object.assign({}, payload, { key, count: existing.count, onSale: existing.onSale || 0 }))
+    },
+    // 從購物車點「修改」改碼：套餐走 ComboPicker、普通商品走 CommodityDetail 並預填
+    editCartMods (item) {
+      if (this.$refs.shopcart && this.$refs.shopcart.hideList) this.$refs.shopcart.hideList()
+      if (item.isCombo) {
+        const combo = this.comboDataById(item)
+        if (combo) this.$refs.comboPicker.show(combo, item)
+        return
+      }
+      const meta = this.foodMetaById()
+      const food = meta[String(item._id)] || meta[String(item.commodityId)] || Object.assign({}, item)
+      this.selectedFood = food
+      this.$refs.detail.show(food, item)
+    },
+    // 依 cart item 找回套餐完整資料（含 groups）供 ComboPicker 重新開啟
+    comboDataById (item) {
+      const meta = this.foodMetaById()
+      const f = meta[String(item._id)]
+      if (!f) return null
+      return f.isCombo ? f : (f._comboData || null)
+    },
+    // 依貨品 _id / commodityId 建立對照表，供查詢 categoryId / bundleGroupId
+    foodMetaById () {
+      const map = {}
+      ;(this.goods || []).forEach(g => (g.foods || []).forEach(f => {
+        if (f._id) map[String(f._id)] = f
+      }))
+      return map
+    },
+    // cart item 的跟餐組別 id（飲品判別）
+    cartItemGroupId (item) {
+      if (item.bundleGroupId) return String(item.bundleGroupId)
+      const meta = this.foodMetaById()
+      const m = meta[String(item._id)] || meta[String(item.commodityId)]
+      return m && m.bundleGroupId ? String(m.bundleGroupId) : ''
+    },
+    // cart item 的主菜組別 id（主食判別）
+    cartItemMainGroupId (item) {
+      if (item.mainGroupId) return String(item.mainGroupId)
+      const meta = this.foodMetaById()
+      const m = meta[String(item._id)] || meta[String(item.commodityId)]
+      return m && m.mainGroupId ? String(m.mainGroupId) : ''
+    },
+    // 判斷某品項（food/cart item）是否為規則 r 的「主食」側
+    // 以主菜組別（triggerGroupIds）判別，留空 = 任意主食
+    ruleTriggerMatches (item, r) {
+      const trigGroups = (r.triggerGroupIds || []).map(String)
+      if (trigGroups.length) {
+        const mg = this.cartItemMainGroupId(item)
+        return !!mg && trigGroups.includes(mg)
+      }
+      return true
+    },
+    // 找出「購物車已有主食、但未點對應跟餐」的撞餐規則（用於彈出加餐飲提示）
+    pendingBundleDrinkRule () {
+      const rules = (this.matchingRules || []).filter(r => r.enabled !== false && isEffectiveNow(r.effectiveTime))
+      if (!rules.length) return null
+      // 同一主菜組別的多條規則（如熱飲/凍飲）視為替代選項，合併計算飲品數
+      const groups = new Map()
+      rules.forEach(r => {
+        const trigGroups = (r.triggerGroupIds || []).map(String)
+        const key = trigGroups.length ? 'g:' + trigGroups.join(',') : '__any__'
+        if (!groups.has(key)) {
+          groups.set(key, { rule: r, trigGroups, drinkGroups: new Set() })
+        }
+        const g = groups.get(key)
+        ;(r.bundleGroupIds || []).forEach(id => g.drinkGroups.add(String(id)))
+      })
+      const items = this.selectFoods || []
+      for (const g of groups.values()) {
+        if (!g.drinkGroups.size) continue
+        let mainCount = 0
+        let drinkCount = 0
+        items.forEach(f => {
+          const grp = this.cartItemGroupId(f)
+          const isMain = this.ruleTriggerMatches(f, g.rule)
+          if (isMain) mainCount += (f.count || 1)
+          const isDrink = g.drinkGroups.size && grp && g.drinkGroups.has(grp)
+          if (isDrink) drinkCount += (f.count || 1)
+        })
+        if (mainCount > drinkCount) return g.rule
+      }
+      return null
+    },
+    // 購物車內「主食」數量（偵測新增主食以重新允許提示）
+    mainDishCount () {
+      const rules = (this.matchingRules || []).filter(r => r.enabled !== false && isEffectiveNow(r.effectiveTime))
+      if (!rules.length) return 0
+      let count = 0
+      ;(this.selectFoods || []).forEach(f => {
+        const isMain = rules.some(r => this.ruleTriggerMatches(f, r))
+        if (isMain) count += (f.count || 1)
+      })
+      return count
+    },
+    // 找出該規則對應跟餐飲品所在的分類 index（供捲動跳轉）
+    findAddonCategoryIndex (rule) {
+      const groupIds = (rule.bundleGroupIds || []).map(String)
+      for (let i = 0; i < (this.goods || []).length; i++) {
+        const foods = this.goods[i].foods || []
+        const hit = foods.some(f => {
+          if (groupIds.length) return f.bundleGroupId && groupIds.includes(String(f.bundleGroupId))
+          return false
+        })
+        if (hit) return i
+      }
+      return -1
+    },
+    scrollToCategory (index) {
+      if (index < 0 || !this.foodScroll) return
+      const foodList = this.$refs.foodsWrapper.getElementsByClassName('food-list-hook')
+      const el = foodList[index]
+      if (el) this.foodScroll.scrollToElement(el, 300)
+    },
+    maybePromptBundleDrink () {
+      if (this.showBundleDrinkPrompt) return
+      // 新增主食時重新允許彈出提示（例如已點 A 餐+飲品後，再點早餐 G 應再次詢問）
+      const mainCount = this.mainDishCount()
+      if (mainCount > this.lastMainDishCount) {
+        this.bundleDrinkPromptDismissed = false
+      }
+      this.lastMainDishCount = mainCount
+      if (this.bundleDrinkPromptDismissed) return
+      if (this.pendingBundleDrinkRule()) this.showBundleDrinkPrompt = true
+    },
+    chooseDrink () {
+      const rule = this.pendingBundleDrinkRule()
+      this.pendingDrinkCategoryIndex = rule ? this.findAddonCategoryIndex(rule) : -1
+      // 點餐飲後不再重複彈出提示（與「遲啲點」一致，本次不再詢問）
+      this.bundleDrinkPromptDismissed = true
+      this.showBundleDrinkPrompt = false
+    },
+    // 對話框關閉動畫結束後，直接跳去飲品欄
+    onBundleDrinkDialogClosed () {
+      if (this.pendingDrinkCategoryIndex >= 0) {
+        this.scrollToCategory(this.pendingDrinkCategoryIndex)
+        this.pendingDrinkCategoryIndex = -1
+      }
+    },
+    dismissBundleDrink () {
+      this.bundleDrinkPromptDismissed = true
+      this.showBundleDrinkPrompt = false
+    },
     clearCartItems () {
       this.cartItems = []
       this.sentPanelVisible = true
       this.fetchSentItems()
     },
-    fetchSentItems () {
+    fetchSentItems (autoOpen) {
       if (!this.id) return
       this.$axios.get('/api/order/current', { params: { deskNo: this.id } })
         .then(res => {
-          if (res.data && res.data.order && res.data.order.length) {
-            this.sentItems = res.data.order.map(item => ({
+          const items = (res.data && res.data.order) ? res.data.order.filter(item => item.voidStatus !== 1) : []
+          if (items.length) {
+            this.sentItems = items.map(item => ({
               name: item.name,
               count: item.count || 1,
               price: item.customPrice || item.price || 0,
               mods: item.mods
             }))
+            // 掃碼進入時已有品項，直接開啟「查看單據」版面
+            if (autoOpen) {
+              this.$nextTick(() => { if (this.$refs.shopcart) this.$refs.shopcart.showSent() })
+            }
           } else {
             this.sentItems = []
             this.sentPanelVisible = false
           }
         })
         .catch(() => { this.sentItems = [] })
+    },
+    loadMenu () {
+      return this.$axios.get('/api/commodity/menu', { params: { mode: '堂食', channel: 'qr' } })
+        .then(res => {
+          this.goods = res.data || []
+          return this.$axios.get('/api/combo/menu', { params: { channel: 'qr' } }).then(r => {
+            const combos = r.data || []
+            // 去重：已在分類（CategoryItem）裡顯示過的套餐不再重複塞進「套餐」分類
+            const existing = new Set()
+            this.goods.forEach(g => (g.foods || []).forEach(f => { if (f._isCombo) existing.add(String(f._id)) }))
+            const extra = combos.filter(c => !existing.has(String(c._id)))
+            if (extra.length) {
+              this.goods.push({
+                name: '套餐',
+                type: 999,
+                foods: extra.map(c => Object.assign({}, c, { isCombo: true }))
+              })
+            }
+          })
+        })
+    },
+    applySoldOutFilter () {
+      if (!this.qrSetting.showSoldOutItems) {
+        this.goods = this.goods.map(g => Object.assign({}, g, { foods: (g.foods || []).filter(f => !f.soldOut) }))
+      }
     },
     _initScroll () {
       this.meunScroll = new BScroll(this.$refs.menuWrapper, {
@@ -249,6 +459,22 @@ export default {
       const el = menuList && menuList[index]
       if (!el) return
       this.meunScroll.scrollToElement(el, 300, 0, -100)
+    }
+  },
+  sockets: {
+    // POS 變更訂單（退菜/加單/結帳）時，即時同步購物車內的「查看單據」面板
+    tableUpdate () {
+      this.fetchSentItems()
+    },
+    // 後台變更菜單/套餐（含「QR 顯示自動品項名」開關）時，即時刷新菜單與套餐
+    menuChanged () {
+      this.loadMenu().then(() => this.applySoldOutFilter())
+    }
+  },
+  watch: {
+    // 購物車變更（加/減品項）時，檢查是否要提示加套餐餐飲
+    selectFoods () {
+      this.maybePromptBundleDrink()
     }
   },
   computed: {
@@ -284,7 +510,8 @@ export default {
       const flat = []
       ;(this.goods || []).forEach(cat => {
         ;(cat.foods || []).forEach(f => {
-          if (f._isCombo || f.isCombo || f._isModCode || f._isModCategory) return
+          if (f._isModCode || f._isModCategory) return
+          if ((f._isCombo || f.isCombo) && !f.mainGroupId) return
           flat.push(f)
         })
       })
@@ -293,23 +520,19 @@ export default {
       ;(this.bundleGroups || []).forEach(g => { groupPriceMap[String(g._id)] = Number(g.price) || 0 })
       const out = []
       rules.forEach(r => {
-        const triggerIds = (r.triggerCategoryIds || []).map(String)
-        const addonIds = (r.addonCategoryIds || []).map(String)
         const groupIds = (r.bundleGroupIds || []).map(String)
-        const addonPrice = Number(r.addonPrice !== undefined ? r.addonPrice : r.combinedPrice) || 0
+        const addonPrice = Number(r.addonPrice) || 0
         const triggerItems = flat
-          .filter(f => triggerIds.length ? triggerIds.includes(String(f.categoryId || '')) : true)
+          .filter(f => this.ruleTriggerMatches(f, r))
           .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: Number(f.price) || 0 }))
         let addonItems
         if (groupIds.length) {
-          // 新：撞跟餐組別，跟餐價取自組別
           addonItems = flat
             .filter(f => f.bundleGroupId && groupIds.includes(String(f.bundleGroupId)))
             .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: groupPriceMap[String(f.bundleGroupId)] || 0 }))
         } else {
-          // 舊：撞跟餐分類
           addonItems = flat
-            .filter(f => addonIds.length ? addonIds.includes(String(f.categoryId || '')) : true)
+            .filter(f => !f._isCombo && !f.isCombo)
             .map(f => ({ commodityId: f._id, name: f.name, price: f.price, upgradePrice: addonPrice }))
         }
         if (!triggerItems.length || !addonItems.length) return
@@ -409,41 +632,27 @@ export default {
     const mods = this.$axios.get('/api/modcode/list', { params: { channel: 'qr' } })
       .then(res => { this.modCodeList = res.data || [] })
       .catch(() => {})
+    const modCats = this.$axios.get('/api/modcode/categories')
+      .then(res => { this.modCodeCategories = res.data || [] })
+      .catch(() => {})
     const rules = this.$axios.get('/api/matchingrule/list')
       .then(res => { this.matchingRules = res.data || [] })
       .catch(() => {})
     const bgs = this.$axios.get('/api/bundlegroup/list')
       .then(res => { this.bundleGroups = res.data || [] })
       .catch(() => {})
-    const menu = this.$axios.get('/api/commodity/menu', { params: { mode: '堂食', channel: 'qr' } })
-      .then(res => {
-        this.goods = res.data || []
-        return this.$axios.get('/api/combo/menu', { params: { channel: 'qr' } }).then(r => {
-          const combos = r.data || []
-          // 去重：已在分類（CategoryItem）裡顯示過的套餐不再重複塞進「套餐」分類
-          const existing = new Set()
-          this.goods.forEach(g => (g.foods || []).forEach(f => { if (f._isCombo) existing.add(String(f._id)) }))
-          const extra = combos.filter(c => !existing.has(String(c._id)))
-          if (extra.length) {
-            this.goods.push({
-              name: '套餐',
-              type: 999,
-              foods: extra.map(c => Object.assign({}, c, { isCombo: true }))
-            })
-          }
-        })
-      })
-    Promise.all([qs, pos, menu, mods, rules, bgs])
+    const menu = this.loadMenu()
+    // 進入點餐版面時先同步一次「查看單據」，不依賴其他 API 是否載入完成
+    // 掃碼進入時若已有品項，直接帶入「查看單據」版面
+    this.fetchSentItems(true)
+    Promise.all([qs, pos, menu, mods, modCats, rules, bgs])
       .then(() => {
         // QR 功能設定：隱藏沽清品項
-        if (!this.qrSetting.showSoldOutItems) {
-          this.goods = this.goods.map(g => Object.assign({}, g, { foods: (g.foods || []).filter(f => !f.soldOut) }))
-        }
+        this.applySoldOutFilter()
         this.$nextTick(() => {
           this._initScroll()
           this._calculateHeight()
         })
-        this.fetchSentItems()
       })
       .catch(err => console.log(err))
   },
@@ -476,7 +685,7 @@ export default {
         display: table;
         height: 56px;
         width: 60px;
-        line-height: 15px;
+        line-height: 20px;
         padding: 0 12px;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -493,7 +702,7 @@ export default {
     }
     .menu-wrapper > ul > .current .text{
         color: #fff;
-        font-size: 13px;
+        font-size: 17px;
         font-weight: 800;
     }
     .goods .text{
@@ -502,16 +711,16 @@ export default {
         text-align: center;
         color: #64748b;
         width: 60px;
-        font-size: 12px;
+        font-size: 16px;
         position: relative;
     }
     .goods .text::after{
         display: block;
         position: absolute;
-        left: 0;
+        left: -12px;
+        right: -12px;
         bottom: 0;
-        width: 100%;
-        border-top: 1px solid #eef1f5;
+        border-top: 2px solid #d3dae3;
         content: ' ';
     }
     #commodities > .goods > .foods-wrapper{
@@ -521,25 +730,37 @@ export default {
     }
     .goods > .foods-wrapper .title{
         padding-left: 14px;
-        height: 30px;
-        line-height: 30px;
-        border-left: 3px solid var(--primary);
-        font-size: 13px;
+        height: 40px;
+        line-height: 40px;
+        border-left: 4px solid var(--primary);
+        font-size: 18px;
         color: #1e3a5f;
-        background: #f8f9fb;
-        font-weight: 600;
+        background: linear-gradient(90deg, var(--primary-soft), rgba(255,255,255,0) 70%);
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+    .goods > .foods-wrapper .category-desc{
+        margin: 6px 14px 0;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: #f4f4f5;
+        font-size: 16px;
+        line-height: 1.5;
+        color: #555555;
+        white-space: normal;
+        word-break: break-word;
     }
     .cat-count{
         position: absolute;
         top: 4px;
         right: 2px;
-        min-width: 16px;
-        height: 16px;
-        line-height: 16px;
+        min-width: 20px;
+        height: 20px;
+        line-height: 20px;
         text-align: center;
-        border-radius: 8px;
+        border-radius: 10px;
         padding: 0 4px;
-        font-size: 10px;
+        font-size: 13px;
         font-weight: 700;
         color: #fff;
         background: linear-gradient(135deg, var(--accent), var(--accent2));
@@ -547,12 +768,12 @@ export default {
     }
     .slot-badge{
         margin-left: 6px;
-        padding: 1px 8px;
+        padding: 2px 8px;
         border-radius: 10px;
         background: linear-gradient(135deg, #f56c6c, #f89898);
         color: #fff;
-        font-size: 10px;
-        line-height: 16px;
+        font-size: 13px;
+        line-height: 20px;
         vertical-align: 1px;
     }
     .slot-title-badge{
@@ -561,25 +782,28 @@ export default {
         border-radius: 10px;
         background: linear-gradient(135deg, #f56c6c, #f89898);
         color: #fff;
-        font-size: 11px;
+        font-size: 14px;
     }
     .goods > .foods-wrapper .food-item{
         display: flex;
-        margin: 14px 16px;
-        padding-bottom: 14px;
+        margin: 2px 4px;
+        padding: 4px 6px;
         position: relative;
+        background: #fff;
+        border: 1px solid #f1f5f9;
+        border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .goods > .foods-wrapper .food-item:active{
+        transform: scale(0.985);
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
     }
     .goods > .foods-wrapper .food-item::after{
-        display: block;
-        position: absolute;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        border-top: 1px solid #f0f2f5;
-        content: ' ';
+        display: none;
     }
     .goods > .foods-wrapper .food-item:last-of-type::after{
-        border-top: 0px solid rgba(7,17,27,0.1);
+        display: none;
     }
     .foods-wrapper .food-item > .icon{
         flex: 0 0 62px;
@@ -594,7 +818,7 @@ export default {
         height: 62px;
         border-radius: 12px;
         color: #fff;
-        font-size: 22px;
+        font-size: 29px;
         font-weight: 700;
         display: flex;
         align-items: center;
@@ -603,7 +827,7 @@ export default {
     }
     .food-item > .contents > .stock-line{
         margin-bottom: 4px;
-        font-size: 11px;
+        font-size: 14px;
         color: #e6a23c;
     }
     .foods-wrapper .food-item > .contents{
@@ -617,8 +841,8 @@ export default {
     .food-item > .contents > .name-row > .name{
         flex: 0 1 auto;
         margin: 4px 8px 6px 0;
-        line-height: 16px;
-        font-size: 14px;
+        line-height: 22px;
+        font-size: 18px;
         color: #1e293b;
         font-weight: 600;
     }
@@ -627,23 +851,23 @@ export default {
         margin-top: 4px;
         margin-left: auto;
         font-weight: 700;
-        line-height: 16px;
+        line-height: 22px;
         text-align: right;
     }
     .food-item > .contents > .name-row > .price > .now{
         margin-right: 8px;
-        font-size: 15px;
+        font-size: 20px;
         color: var(--accent);
     }
     .food-item > .contents > .name-row > .price > .old{
         text-decoration: line-through;
-        font-size: 11px;
+        font-size: 14px;
         color: #94a3b8;
     }
     .food-item > .contents > .desc{
-        line-height: 14px;
+        line-height: 18px;
         margin-bottom: 6px;
-        font-size: 11px;
+        font-size: 14px;
         color: #94a3b8;
         white-space: nowrap;
         overflow: hidden;
@@ -659,8 +883,23 @@ export default {
         position: absolute;
         right: 0px;
         bottom: 18px;
-        font-size: 13px;
+        font-size: 17px;
         color: #94a3b8;
         font-weight: 500;
+    }
+    .bundle-drink-body{
+        text-align: center;
+        padding: 6px 4px 2px;
+    }
+    .bundle-drink-title{
+        margin: 0 0 18px;
+        font-size: 21px;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .bundle-drink-actions{
+        display: flex;
+        justify-content: center;
+        gap: 12px;
     }
 </style>

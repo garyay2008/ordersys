@@ -145,20 +145,28 @@
         description="貨品管理裡給每個貨品選「打印機隊列」（檔口），下單時按隊列自動路由到對應的「位置打印機」打印。打印機隊列 (Printer Queue)：快蒸/慢蒸/腸粉煎炸/大排檔/上什/粉面/海鮮/冷盤/熱炒…，打印機隊列 (Printer Queue) 可隨意修改。">
       </el-alert>
       <el-alert
-        title="超時 / 重試欄位說明"
+        title="跳飛流程說明"
         type="info"
         :closable="false"
         style="margin-top: 8px;">
-        <table class="hint-table">
-          <thead>
-            <tr><th>欄位</th><th>預設</th><th>說明</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>timeout</td><td>8000</td><td>單次嘗試逾時（CUPS=等列印完成；直連=連線逾時）</td></tr>
-            <tr><td>retries</td><td>1</td><td>首次失敗後額外重試次數</td></tr>
-            <tr><td>retryDelay</td><td>400</td><td>重試間隔(ms)</td></tr>
-          </tbody>
-        </table>
+        <div class="tip-block">
+          <div>跳飛順序：<b>主機 → 第一備援機 → 第二備援機 → 廚房通用機</b>（最後防線）</div>
+          <ul class="tip-list">
+            <li>僅同技術：針式只跳針式、熱敏只跳熱敏；相同目標自動去重</li>
+            <li>缺紙／開蓋／離線（未送出）不跳飛，改通知前台補紙／補單</li>
+            <li>整條鏈合計預算由 POS 設定的「跳飛總時間」控制（30／45／75／90 秒），逾時即停止</li>
+          </ul>
+          <table class="hint-table">
+            <thead>
+              <tr><th>欄位</th><th>預設</th><th>說明</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>timeout</td><td>8000</td><td>單次連線逾時（逾時判離線，跳下一台）</td></tr>
+              <tr><td>retries</td><td>1</td><td>首次失敗後額外重試次數</td></tr>
+              <tr><td>retryDelay</td><td>400</td><td>重試間隔(ms)</td></tr>
+            </tbody>
+          </table>
+        </div>
       </el-alert>
       <div v-for="(p, pi) in form.printers" :key="pi" class="station-box">
         <div class="station-head">
@@ -191,18 +199,21 @@
           </el-select>
           <el-input v-model="p.ip" placeholder="打印機 IP" style="width: 130px; margin-left: 6px;"></el-input>
           <el-input-number v-model="p.port" :min="1" :max="65535" size="small" controls-position="right" style="width: 110px; margin-left: 6px;" title="端口"></el-input-number>
-          <el-input-number v-model="p.timeout" :min="1000" :max="60000" :step="1000" size="small" controls-position="right" style="width: 130px; margin-left: 6px;" title="超時(ms)：直連=連線逾時；CUPS=列印完成逾時，逾時即跳飛備援機"></el-input-number>
+          <el-input-number v-model="p.timeout" :min="1000" :max="60000" :step="1000" size="small" controls-position="right" style="width: 130px; margin-left: 6px;" title="超時(ms)：連線逾時，逾時即跳飛備援機"></el-input-number>
           <el-input-number v-model="p.retries" :min="0" :max="10" size="small" controls-position="right" style="width: 90px; margin-left: 6px;" title="失敗重試次數（額外重試）"></el-input-number>
           <el-input-number v-model="p.retryDelay" :min="100" :max="10000" :step="100" size="small" controls-position="right" style="width: 120px; margin-left: 6px;" title="重試間隔(ms)"></el-input-number>
-          <el-input v-model="p.queue" placeholder="CUPS 佇列(可空)" style="width: 140px; margin-left: 6px;" title="CUPS 佇列名（如 RECEIPT/KITCHEN/SERVING），留空走 IP 直連"></el-input>
+          <el-switch v-model="p.statusCheck" active-text="狀態檢查" style="margin-left: 8px;" title="DLE EOT 即時狀態檢查（缺紙/開蓋/離線）。USB 轉 LAN 列印伺服器不支援時建議關閉，可避免每單白等數秒"></el-switch>
           <el-select v-model="p.paperWidth" style="width: 90px; margin-left: 6px;" title="紙寬">
             <el-option :label="'58mm'" :value="58"></el-option>
             <el-option :label="'80mm'" :value="80"></el-option>
           </el-select>
-          <el-select v-model="p.fallbackTo" clearable placeholder="備援機(可空)" style="width: 140px; margin-left: 6px;" title="主機離線時自動跳飛到此檔口">
+          <el-select v-model="p.fallbackTo" clearable placeholder="備援機(可空)" style="width: 140px; margin-left: 6px;" title="主機離線時自動跳飛到此檔口（僅同技術：針式只列針式、熱敏只列熱敏）">
             <el-option v-for="o in otherStations(pi)" :key="o.name" :label="o.name" :value="o.name"></el-option>
           </el-select>
-          <span class="tip">主機離線時自動改印到備援機</span>
+          <el-select v-model="p.fallbackTo2" clearable placeholder="第二備援機(可空)" style="width: 150px; margin-left: 6px;" title="第一備援機也離線時，跳飛到此檔口（僅同技術）">
+            <el-option v-for="o in otherStations(pi)" :key="o.name" :label="o.name" :value="o.name"></el-option>
+          </el-select>
+          <span class="tip">主機離線時自動改印到同技術備援機，再失敗改印第二備援機</span>
           <el-switch v-if="p.role === 'cashier'" v-model="p.cashDrawer" active-text="錢箱" style="margin-left: 8px;"></el-switch>
           <el-button size="mini" type="success" @click="testLocation(p)" style="margin-left: 8px;">打印機測試</el-button>
           <el-button size="mini" type="warning" @click="testFallback(p)" style="margin-left: 8px;">測試備援</el-button>
@@ -288,14 +299,8 @@
           <el-form-item label="服務檯IP">
             <el-input v-model="z.serviceIp" placeholder="預結單打印機" style="width:140px;"></el-input>
           </el-form-item>
-          <el-form-item label="服務檯CUPS">
-            <el-input v-model="z.serviceQueue" placeholder="CUPS 佇列(可空)" style="width:140px;"></el-input>
-          </el-form-item>
           <el-form-item label="收銀IP">
             <el-input v-model="z.cashierIp" placeholder="發票打印機" style="width:140px;"></el-input>
-          </el-form-item>
-          <el-form-item label="收銀CUPS">
-            <el-input v-model="z.cashierQueue" placeholder="CUPS 佇列(可空)" style="width:140px;"></el-input>
           </el-form-item>
           <el-button type="danger" size="mini" icon="el-icon-delete" @click="form.zones.splice(zi, 1)"></el-button>
         </el-form>
@@ -330,9 +335,6 @@
         </el-form-item>
         <el-form-item label="端口">
           <el-input-number v-model="form.centralPrint.port" :min="1" :max="65535" size="small" controls-position="right"></el-input-number>
-        </el-form-item>
-        <el-form-item label="CUPS 佇列">
-          <el-input v-model="form.centralPrint.queue" placeholder="佇列名(可空)" style="width: 150px;"></el-input>
         </el-form-item>
         <el-form-item label="紙寬">
           <el-select v-model="form.centralPrint.paperWidth" style="width: 90px;">
@@ -391,13 +393,15 @@ const PRINTER_MODELS = {
 const DEFAULT_FORMAT = {
   kitchen: {
     title: '後廚小票',
-    order: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'station', 'divider2', 'items', 'items2', 'items3', 'total', 'divider3', 'remark', 'time', 'sendTime', 'deskNo2', 'divider4'],
+    order: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'station', 'orderNoStation', 'dateSendTimeWaiter', 'divider2', 'items', 'items2', 'items3', 'total', 'divider3', 'remark', 'time', 'sendTime', 'deskNo2', 'divider4'],
     fields: {
       title: { show: true, size: 1, align: 'center' },
       shopName: { show: true, size: 4, align: 'center' },
       deskNo: { show: true, size: 1, align: 'left' },
       deskNo2: { show: true, size: 1, align: 'right' },
       orderNo: { show: true, size: 1, align: 'left' },
+      orderNoStation: { show: false, size: 1, align: 'left' },
+      dateSendTimeWaiter: { show: false, size: 1, align: 'left' },
       waiter: { show: true, size: 1, align: 'left' },
       sendWaiter: { show: true, size: 1, align: 'left' },
       people: { show: true, size: 1, align: 'left' },
@@ -476,7 +480,7 @@ const DEFAULT_FORMAT = {
   },
   print: {
     title: '印單小票',
-    order: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'remark', 'time', 'sendTime', 'date', 'divider4'],
+    order: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'barcode', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'remark', 'time', 'sendTime', 'date', 'divider4'],
     fields: {
       title: { show: true, size: 1, align: 'center' },
       shopName: { show: true, size: 4, align: 'center' },
@@ -484,6 +488,7 @@ const DEFAULT_FORMAT = {
       phone: { show: true, size: 1, align: 'center' },
       deskNo: { show: true, size: 4, align: 'center' },
       deskNoBig: { show: true, size: 5, align: 'left' },
+      barcode: { show: false, size: 1 },
       orderNo: { show: true, size: 1, align: 'left' },
       reprint: { show: true, size: 2, align: 'left' },
       waiter: { show: true, size: 1, align: 'left' },
@@ -516,6 +521,7 @@ const DEFAULT_FORMAT = {
       orderNo: { show: true, size: 1, align: 'left' },
       waiter: { show: true, size: 1, align: 'left' },
       time: { show: true, size: 1, align: 'left' },
+      qr: { show: true, size: 2 },
       divider1: { show: true, type: '=' },
       divider2: { show: true, type: '-' },
       divider3: { show: true, type: '=' }
@@ -529,6 +535,7 @@ const DEFAULT_FORMAT = {
       shopName: { show: true, size: 3, align: 'center' },
       deskNo: { show: true, size: 3, align: 'center' },
       hint: { show: true, size: 1, align: 'center' },
+      qr: { show: true, size: 3 },
       divider1: { show: true, type: '-' }
     }
   },
@@ -573,6 +580,24 @@ const DEFAULT_FORMAT = {
       divider3: { show: true, type: '-' },
       divider4: { show: true, type: '=' }
     }
+  },
+  cancelitem: {
+    title: '已取消',
+    order: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'items', 'reason', 'divider3', 'time', 'divider4'],
+    fields: {
+      title: { show: true, size: 3, align: 'center', bold: true },
+      shopName: { show: true, size: 4, align: 'center' },
+      deskNo: { show: true, size: 1, align: 'left' },
+      orderNo: { show: true, size: 1, align: 'left' },
+      waiter: { show: true, size: 1, align: 'left' },
+      items: { show: true, size: 1, align: 'left' },
+      reason: { show: true, size: 1, align: 'left' },
+      time: { show: true, size: 1, align: 'left' },
+      divider1: { show: true, type: '=' },
+      divider2: { show: true, type: '-' },
+      divider3: { show: true, type: '-' },
+      divider4: { show: true, type: '=' }
+    }
   }
 }
 
@@ -591,12 +616,12 @@ function withBoldDefaults () {
 function defaultPrinters () {
   const kitchen = ['冷盤', '熱炒', '點心', '燉湯', '快蒸', '慢蒸', '腸粉煎炸', '大排檔', '上什', '粉面', '海鮮']
   const list = kitchen.map(name => ({
-    name, role: 'kitchen', dineInMode: 'long', takeawayMode: '', tech: 'dot', ip: '', port: 9100, queue: '', paperWidth: 80, copies: 2, cashDrawer: false, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180
+    name, role: 'kitchen', dineInMode: 'long', takeawayMode: '', tech: 'dot', ip: '', port: 9100, paperWidth: 80, copies: 2, cashDrawer: false, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180
   }))
-  list.push({ name: '水吧', role: 'bar', dineInMode: 'long', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, queue: '', paperWidth: 58, copies: 1, cashDrawer: false, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180 })
-  list.push({ name: '外賣', role: 'kitchen', dineInMode: '', takeawayMode: 'long', tech: 'thermal', ip: '', port: 9100, queue: '', paperWidth: 58, copies: 1, cashDrawer: false, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180 })
-  list.push({ name: '收銀臺', role: 'cashier', dineInMode: '', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, queue: '', paperWidth: 58, copies: 1, cashDrawer: true, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180 })
-  list.push({ name: '傳菜總檯', role: 'expeditor', dineInMode: '', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, queue: '', paperWidth: 80, copies: 1, cashDrawer: false, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180 })
+  list.push({ name: '水吧', role: 'bar', dineInMode: 'long', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, paperWidth: 58, copies: 1, cashDrawer: false, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180 })
+  list.push({ name: '外賣', role: 'kitchen', dineInMode: '', takeawayMode: 'long', tech: 'thermal', ip: '', port: 9100, paperWidth: 58, copies: 1, cashDrawer: false, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180 })
+  list.push({ name: '收銀臺', role: 'cashier', dineInMode: '', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, paperWidth: 58, copies: 1, cashDrawer: true, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180 })
+  list.push({ name: '傳菜總檯', role: 'expeditor', dineInMode: '', takeawayMode: '', tech: 'thermal', ip: '', port: 9100, paperWidth: 80, copies: 1, cashDrawer: false, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180 })
   return list
 }
 
@@ -639,7 +664,7 @@ export default {
         printers: defaultPrinters(),
         ticketTargets: { kitchen: '', receipt: '', serving: '', print: '', qrcode: '', chase: '', pantry: '' },
         zones: [],
-        centralPrint: { ip: '', port: 9100, queue: '', tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }
+        centralPrint: { ip: '', port: 9100, tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }
       }
     }
   },
@@ -716,9 +741,11 @@ export default {
                 if (!p.role && p.location) p.role = p.location
                 if (!p.name && p.location) p.name = p.location
                 if (p.fallbackTo === undefined) p.fallbackTo = ''
+                if (p.fallbackTo2 === undefined) p.fallbackTo2 = ''
                 if (p.timeout === undefined) p.timeout = 8000
                 if (p.retries === undefined) p.retries = 1
                 if (p.retryDelay === undefined) p.retryDelay = 400
+                if (p.statusCheck === undefined) p.statusCheck = true
                 if (p.model === undefined) p.model = ''
                 if (p.dpi === undefined) p.dpi = 180
                 if (!p.dineInMode && !p.takeawayMode) {
@@ -735,7 +762,7 @@ export default {
               desksText: (z.desks || []).join(',')
             }))
             this.form.ticketTargets = Object.assign({ kitchen: '', receipt: '', serving: '', print: '', qrcode: '', chase: '', pantry: '' }, d.ticketTargets || {})
-            this.form.centralPrint = Object.assign({ ip: '', port: 9100, queue: '', tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }, d.centralPrint || {})
+            this.form.centralPrint = Object.assign({ ip: '', port: 9100, tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }, d.centralPrint || {})
           } else {
             this.$axios.get('/api/shop/get').then(r => {
               if (r.data && r.data.shopName) this.form.shopName = r.data.shopName
@@ -746,7 +773,7 @@ export default {
     },
     applyFormats (key, source) {
       this.$set(this.form, key, {})
-      ;['kitchen', 'receipt', 'serving', 'print', 'qrcode', 'tableqr', 'chase', 'pantry'].forEach(type => {
+      ;['kitchen', 'receipt', 'serving', 'print', 'qrcode', 'tableqr', 'chase', 'pantry', 'cancelitem'].forEach(type => {
         const base = JSON.parse(JSON.stringify(DEFAULT_FORMAT[type]))
         const custom = (source && source[type]) || {}
         const customFields = Object.assign({}, custom.fields || {})
@@ -785,15 +812,16 @@ export default {
         merged.fields = Object.assign({}, base.fields, customFields)
         Object.keys(merged.fields).forEach(k => {
           if (merged.fields[k] && merged.fields[k].bold === undefined) merged.fields[k].bold = false
+          if (k === 'barcode' && merged.fields[k] && merged.fields[k].size === undefined) merged.fields[k].size = 1
         })
         this.$set(this.form[key], type, merged)
       })
     },
     addStation () {
-      this.form.printers.push({ name: '', role: 'kitchen', dineInMode: 'long', takeawayMode: '', tech: 'dot', ip: '', port: 9100, queue: '', paperWidth: 80, copies: 1, cashDrawer: false, fallbackTo: '', timeout: 8000, retries: 1, retryDelay: 400, model: '', dpi: 180 })
+      this.form.printers.push({ name: '', role: 'kitchen', dineInMode: 'long', takeawayMode: '', tech: 'dot', ip: '', port: 9100, paperWidth: 80, copies: 1, cashDrawer: false, fallbackTo: '', fallbackTo2: '', timeout: 8000, retries: 1, retryDelay: 400, statusCheck: true, model: '', dpi: 180 })
     },
     addZone () {
-      this.form.zones.push({ name: '', desksText: '', serviceIp: '', servicePort: 9100, serviceQueue: '', cashierIp: '', cashierPort: 9100, cashierQueue: '' })
+      this.form.zones.push({ name: '', desksText: '', serviceIp: '', servicePort: 9100, cashierIp: '', cashierPort: 9100 })
     },
     onModelChange (p) {
       const m = PRINTER_MODELS[p.model]
@@ -813,10 +841,8 @@ export default {
           desks: (z.desksText || '').split(',').map(s => Number(s.trim())).filter(n => !isNaN(n)),
           serviceIp: z.serviceIp || '',
           servicePort: z.servicePort || 9100,
-          serviceQueue: z.serviceQueue || '',
           cashierIp: z.cashierIp || '',
-          cashierPort: z.cashierPort || 9100,
-          cashierQueue: z.cashierQueue || ''
+          cashierPort: z.cashierPort || 9100
         }))
       this.$axios.post('/api/printer/save', payload)
         .then(res => this.$message({ type: 'success', message: res.data }))
@@ -845,7 +871,9 @@ export default {
         .catch(err => this.$message({ type: 'error', message: err.response ? err.response.data : '測試打印失敗' }))
     },
     otherStations (pi) {
-      return (this.form.printers || []).filter((p, i) => i !== pi && p.name && p.name.trim() !== '')
+      const cur = this.form.printers[pi]
+      const curTech = (cur && cur.tech) || 'dot'
+      return (this.form.printers || []).filter((p, i) => i !== pi && p.name && p.name.trim() !== '' && ((p.tech || 'dot') === curTech))
     },
     testFallback (p) {
       if (!p.fallbackTo) {
@@ -889,4 +917,6 @@ export default {
 .hint-table{ width: 100%; border-collapse: collapse; font-size: 12px; color: #5e6d82; }
 .hint-table th, .hint-table td{ border: 1px solid #ebeef5; padding: 4px 8px; text-align: left; }
 .hint-table th{ background: #f5f7fa; color: #303133; font-weight: 600; }
+.tip-block{ font-size: 13px; color: #5e6d82; line-height: 1.8; }
+.tip-list{ margin: 6px 0 8px; padding-left: 18px; }
 </style>

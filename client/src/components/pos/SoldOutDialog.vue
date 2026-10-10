@@ -23,8 +23,11 @@
         </el-table-column>
         <el-table-column label="限量庫存" width="170">
           <template slot-scope="scope">
-            <el-input-number v-model="scope.row.stock" :min="-1" :max="9999" size="mini" style="width: 120px;" @change="setStock(scope.row)"></el-input-number>
-            <span class="tip">-1=不限</span>
+            <template v-if="!scope.row._isCombo && !scope.row._isModCode">
+              <el-input-number v-model="scope.row.stock" :min="-1" :max="9999" size="mini" style="width: 120px;" @change="setStock(scope.row)"></el-input-number>
+              <span class="tip">-1=不限</span>
+            </template>
+            <span v-else class="tip">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90">
@@ -87,10 +90,14 @@ export default {
     soldOutPickerList () {
       const kw = (this.soldOutDialog.pickerKeyword || '').trim().toLowerCase()
       const all = []
+      const seen = new Set()
       this.goods.forEach(g => {
         (g.foods || []).forEach(f => {
           if (f.soldOut) return
-          all.push({ _id: f._id, name: f.name, plu: f.plu || '', code: f.code || '', soldOut: false, stock: f.stock === undefined || f.stock === null ? -1 : f.stock })
+          const key = String(f._id)
+          if (seen.has(key)) return
+          seen.add(key)
+          all.push({ _id: f._id, name: f.name, plu: f.plu || f.code || '', code: f.code || '', soldOut: false, stock: f.stock === undefined || f.stock === null ? -1 : f.stock, _isCombo: !!f._isCombo, _isModCode: !!f._isModCode })
         })
       })
       if (!kw) return all
@@ -101,8 +108,13 @@ export default {
     soldOutRowClass ({ row }) {
       return row.soldOut ? 'soldout-highlight' : ''
     },
+    soldOutEndpoint (row) {
+      if (row._isCombo) return '/api/combo/soldout'
+      if (row._isModCode) return '/api/modcode/soldout'
+      return '/api/commodity/soldout'
+    },
     toggleSoldOutFromPicker (food) {
-      this.$axios.post('/api/commodity/soldout', { _id: food._id, soldOut: !food.soldOut })
+      this.$axios.post(this.soldOutEndpoint(food), { _id: food._id, soldOut: !food.soldOut })
         .then(() => {
           food.soldOut = !food.soldOut
           this.$message({ type: 'success', message: food.soldOut ? `「${food.name}」已加入售罄清單` : `「${food.name}」已從售罄清單移除` })
@@ -114,7 +126,7 @@ export default {
         .catch(() => this.$message({ type: 'error', message: '更新失敗' }))
     },
     removeFromSoldOut (row) {
-      this.$axios.post('/api/commodity/soldout', { _id: row._id, soldOut: false })
+      this.$axios.post(this.soldOutEndpoint(row), { _id: row._id, soldOut: false })
         .then(() => {
           row.soldOut = false
           this.$message({ type: 'success', message: `「${row.name}」已從售罄清單移除` })
@@ -123,7 +135,7 @@ export default {
         .catch(() => this.$message({ type: 'error', message: '更新失敗' }))
     },
     setStock (row) {
-      this.$axios.post('/api/commodity/soldout', { _id: row._id, stock: row.stock })
+      this.$axios.post(this.soldOutEndpoint(row), { _id: row._id, stock: row.stock })
         .then(() => {
           // 前端同步：庫存 ≤ 0 自動沽清，> 0 自動重售（與後端邏輯一致）
           if (row.stock <= 0) {

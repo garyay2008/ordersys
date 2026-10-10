@@ -7,7 +7,7 @@
             text-color="#c7d2e0"
             active-text-color="#fff">
                 <template v-for="item in items">
-                    <router-link v-if="!item.isGroup" :to="item.path" :key="item.path">
+                    <router-link v-if="!item.isGroup && !item.openBlank" :to="item.path" :key="item.path">
                         <el-menu-item
                         :index="item.path"
                         >
@@ -15,6 +15,14 @@
                             <span slot="title">{{item.name}}</span>
                         </el-menu-item>
                     </router-link>
+                    <a v-else-if="!item.isGroup && item.openBlank" :href="item.path" target="_blank" :key="item.path">
+                        <el-menu-item
+                        :index="item.path"
+                        >
+                            <i :class="item.icon"></i>
+                            <span slot="title">{{item.name}}</span>
+                        </el-menu-item>
+                    </a>
                     <el-submenu v-if="item.children" :index="item.path" :key="item.path">
                         <template slot="title">
                             <i :class="item.icon"></i>
@@ -60,8 +68,8 @@ export default {
             { path: '/admin/commodity', name: '貨品管理' },
             { path: '/admin/combo', name: '套餐管理' },
             { path: '/admin/bundle', name: '撞餐設定' },
-            { path: '/admin/addongroup', name: '跟餐組管理' },
             { path: '/admin/bundlegroup', name: '跟餐組別管理' },
+            { path: '/admin/maingroup', name: '主菜組別管理' },
             { path: '/admin/matchingrule', name: '撞餐規則' },
             { path: '/admin/modcode', name: '改碼管理' },
             { path: '/admin/department', name: '部門管理' },
@@ -119,6 +127,13 @@ export default {
           name: '自助點餐機',
           path: '/admin/kiosk',
           isGroup: false
+        },
+        {
+          icon: 'el-icon-service',
+          name: '侍應流動點餐',
+          path: '/mpos',
+          isGroup: false,
+          openBlank: true
         },
         {
           icon: 'el-icon-s-order',

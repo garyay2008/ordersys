@@ -159,7 +159,7 @@ router.post(
       }
       const report = req.body || {}
       const printer = escpos.resolveTicketPrinter(setting, 'receipt')
-      if (!printer || !(printer.ip || printer.queue)) {
+      if (!printer || !printer.ip) {
         return res.status(400).send('未設置收銀/報表打印機！')
       }
       const data = escpos.buildReportTicket(printer, report)

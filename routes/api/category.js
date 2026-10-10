@@ -57,7 +57,9 @@ router.post(
       const category = new Category({
         code: req.body.code || '',
         cName: req.body.cName,
+        describe: req.body.describe || '',
         department: req.body.department || '',
+        reportGroup: req.body.reportGroup || '',
         no: count,
         active: req.body.active !== false,
         serviceModes: Array.isArray(req.body.serviceModes) && req.body.serviceModes.length ? req.body.serviceModes : DEFAULT_SERVICE_MODES,
@@ -90,7 +92,9 @@ router.post(
     const update = {}
     if (req.body.code !== undefined) update.code = req.body.code
     if (req.body.cName !== undefined) update.cName = req.body.cName
+    if (req.body.describe !== undefined) update.describe = req.body.describe || ''
     if (req.body.department !== undefined) update.department = req.body.department || ''
+    if (req.body.reportGroup !== undefined) update.reportGroup = req.body.reportGroup || ''
     if (req.body.active !== undefined) update.active = !!req.body.active
     if (req.body.serviceModes !== undefined) update.serviceModes = Array.isArray(req.body.serviceModes) && req.body.serviceModes.length ? req.body.serviceModes : DEFAULT_SERVICE_MODES
     if (req.body.channels !== undefined) update.channels = Array.isArray(req.body.channels) && req.body.channels.length ? req.body.channels : ['pos', 'qr']

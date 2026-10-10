@@ -18,11 +18,28 @@
               <el-input v-model="form.dineInPrefix" size="small" placeholder="留空預設 10" style="width: 160px;"></el-input>
             </div>
             <div>
+              <div style="font-size:12px; color:#606266; margin-bottom:2px;">外賣枱</div>
+              <el-input v-model="form.takeawayTablePrefix" size="small" placeholder="留空預設 99" style="width: 160px;"></el-input>
+            </div>
+            <div>
               <div style="font-size:12px; color:#606266; margin-bottom:2px;">外賣</div>
-              <el-input v-model="form.takeawayPrefix" size="small" placeholder="留空預設 99" style="width: 160px;"></el-input>
+              <el-input v-model="form.takeawayPrefix" size="small" placeholder="留空預設 88" style="width: 160px;"></el-input>
             </div>
           </div>
-          <div class="rounding-hint">訂單號格式：前綴 + 流水號。堂食留空預設 10，外賣留空預設 99。</div>
+          <div class="rounding-hint">訂單號格式：前綴 + 流水號。堂食留空預設 10，外賣枱留空預設 99，外賣留空預設 88。</div>
+        </el-form-item>
+        <el-form-item label="外賣枱枱號範圍">
+          <div style="display:flex; gap:16px; align-items:center;">
+            <div>
+              <div style="font-size:12px; color:#606266; margin-bottom:2px;">起</div>
+              <el-input v-model="form.takeawayTableFrom" size="small" placeholder="預設 901" style="width: 160px;"></el-input>
+            </div>
+            <div>
+              <div style="font-size:12px; color:#606266; margin-bottom:2px;">訖</div>
+              <el-input v-model="form.takeawayTableTo" size="small" placeholder="預設 999" style="width: 160px;"></el-input>
+            </div>
+          </div>
+          <div class="rounding-hint">外賣枱區域內、枱號落在起訖範圍內（含）時，票據枱號前顯示「外賣」二字（例如：外賣901）。留空則起預設 901、訖預設 999。</div>
         </el-form-item>
         <el-form-item label="加一服務費">
           <el-switch v-model="form.serviceChargeEnabled" active-text="開啟" inactive-text="關閉"></el-switch>
@@ -93,6 +110,14 @@
           </el-select>
           <div class="rounding-hint">此等級以下的員工，印單鍵只能印一次；此等級以上可重複印單。</div>
         </el-form-item>
+        <el-form-item label="堂食印單次數">
+          <el-input-number v-model="form.dineInPrintCopies" :min="1" :max="9" style="width: 220px;"></el-input-number>
+          <div class="rounding-hint">按下「印單」時，堂食（枱號）印單小票的印製次數。</div>
+        </el-form-item>
+        <el-form-item label="外賣印單次數">
+          <el-input-number v-model="form.takeawayPrintCopies" :min="1" :max="9" style="width: 220px;"></el-input-number>
+          <div class="rounding-hint">按下「印單」時，外賣枱／外賣印單小票的印製次數。</div>
+        </el-form-item>
         <el-form-item label="茶芥必選項目">
           <el-switch v-model="form.teaChargesRequired" active-text="開啟" inactive-text="關閉"></el-switch>
           <div class="rounding-hint">開啟後，結帳／印單需有「必選項目」貨品在單內，否則提示「未入茶芥」並阻擋。</div>
@@ -110,6 +135,10 @@
         <el-form-item label="只列印後加項目上菜紙">
           <el-switch v-model="form.servingNewItemsOnly" active-text="開啟" inactive-text="關閉"></el-switch>
           <div class="rounding-hint">開啟後，按上菜紙時只印新加入的品項；若沒有後加品項，則整張單再出一次。</div>
+        </el-form-item>
+        <el-form-item label="直接埋單模式">
+          <el-switch v-model="form.directPayMode" active-text="開啟" inactive-text="關閉"></el-switch>
+          <div class="rounding-hint">開啟後，僅「外賣」模式下的送單／上菜紙／印單功能鍵改為直接結帳（落單即收錢）。外賣枱與堂食不受影響。</div>
         </el-form-item>
         <el-form-item label="套餐名稱只列印一次">
           <el-switch v-model="form.comboNameOnce" active-text="開啟" inactive-text="關閉"></el-switch>
@@ -158,6 +187,15 @@
         <el-form-item label="跳飛 POS 通知">
           <el-switch v-model="form.failoverNotify" active-text="開啟" inactive-text="關閉"></el-switch>
           <div class="rounding-hint">開啟後，打印機跳飛（備援機／廚房通用機代印）時，POS 前台頂部會顯示閃爍提示；關閉則不顯示。</div>
+        </el-form-item>
+        <el-form-item label="跳飛總時間">
+          <el-radio-group v-model="form.failoverTimeout">
+            <el-radio-button :label="30">30 秒</el-radio-button>
+            <el-radio-button :label="45">45 秒</el-radio-button>
+            <el-radio-button :label="75">1 分 15 秒</el-radio-button>
+            <el-radio-button :label="90">1 分 30 秒</el-radio-button>
+          </el-radio-group>
+          <div class="rounding-hint">整條跳飛鏈（主機重試＋備援機＋廚房通用機）合計的嘗試時間上限，逾時即停止並回報失敗；各打印機的單次連線逾時仍以「打印機設定」內的 timeout 微調。</div>
         </el-form-item>
         <el-form-item label="POS 字型">
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -418,6 +456,8 @@
           <el-color-picker v-model="item.bgColor" size="mini" show-alpha :predefine="['#f0f4f9','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6']"></el-color-picker>
           <el-color-picker v-model="item.textColor" size="mini" :predefine="['#475569','#ffffff','#1e293b','#2563eb']"></el-color-picker>
           <div class="bl-actions">
+            <el-button size="mini" icon="el-icon-document-copy" @click="sbCopyColor(idx)" title="複製配色"></el-button>
+            <el-button size="mini" icon="el-icon-copy-document" :disabled="!sbCopiedColor" @click="sbPasteColor(idx)" title="套用配色"></el-button>
             <el-button size="mini" icon="el-icon-top" :disabled="idx === 0" @click="moveSidebarBtn(idx, -1)"></el-button>
             <el-button size="mini" icon="el-icon-bottom" :disabled="idx === sidebarButtons.length - 1" @click="moveSidebarBtn(idx, 1)"></el-button>
           </div>
@@ -425,6 +465,7 @@
       </div>
       <div class="btn-layout-footer">
         <el-button @click="resetSidebar">重設為預設</el-button>
+        <el-button icon="el-icon-copy-document" :disabled="!sbCopiedColor" @click="sbApplyColorToAll">套用配色到全部</el-button>
         <el-button type="primary" @click="save">保存設置</el-button>
       </div>
     </el-card>
@@ -836,7 +877,8 @@ const DEFAULT_BTN_PERMS = {
   paidOut: 3,
   received: 3,
   changePrice: 2,
-  showDetail: 1
+  showDetail: 1,
+  bundle: 2
 }
 
 const BUTTONS = [
@@ -880,12 +922,14 @@ const BUTTONS = [
   { id: 'pantry', label: '打柯單', funcCode: '50' },
   { id: 'deptSplit', label: '大單分帳', funcCode: '51' },
   { id: 'centralCheckout', label: '中央埋單', funcCode: '52' },
-  { id: 'printTableQr', label: '印點餐碼', funcCode: '54' }
+  { id: 'printTableQr', label: '印點餐碼', funcCode: '54' },
+  { id: 'bundle', label: '撞餐', funcCode: '55' }
 ]
 const SIDEBAR_FUNC = [
   { id: 'grid', label: '枱號圖', funcCode: '23' },
-  { id: 'takeaway', label: '外賣', funcCode: '24' },
+  { id: 'takeaway', label: '外賣枱', funcCode: '24' },
   { id: 'dineIn', label: '堂食', funcCode: '25' },
+  { id: 'delivery', label: '外賣', funcCode: '57' },
   { id: 'list', label: '查看單據', funcCode: '26' },
   { id: 'search', label: '搜尋編號', funcCode: '27' },
   { id: 'history', label: '往日單據', funcCode: '28' },
@@ -898,7 +942,8 @@ const SIDEBAR_FUNC = [
 // 經理功能選單（透過「經理功能」按鈕＋經理登入後叫出，不放進底部功能 dock）
 const MANAGER_FUNC = [
   { id: 'copyOrder', label: '複印單據', funcCode: '44' },
-  { id: 'refreshPos', label: '重新整理', funcCode: '49' }
+  { id: 'refreshPos', label: '重新整理', funcCode: '49' },
+  { id: 'dayReport', label: '每日結算', funcCode: '56' }
 ]
 const FUNC_CODE_MAP = {}
 BUTTONS.forEach(b => { FUNC_CODE_MAP[b.funcCode] = b.id })
@@ -954,6 +999,7 @@ export default {
       globalFontSize: 14,
       BUTTONS,
       sidebarButtons: SIDEBAR_FUNC.map(b => ({ id: b.id, label: b.label, funcCode: b.funcCode, visible: true, bgColor: '', textColor: '' })),
+      sbCopiedColor: null,
       calledTagStyle: { color: '#ea580c', background: '#ffedd5', border: '#fed7aa' },
       badgeStyleList: [
         { key: 'transfer', label: '轉', char: '轉', fontSize: 13, color: '#ffffff', background: '#e6a23c', visible: true },
@@ -1015,8 +1061,13 @@ export default {
         sideQtyMode: 'pending',
         modCodeUIMode: 'A',
         reprintMinLevel: 3,
+        dineInPrintCopies: 1,
+        takeawayPrintCopies: 1,
         dineInPrefix: '10',
-        takeawayPrefix: '99',
+        takeawayTablePrefix: '99',
+        takeawayPrefix: '88',
+        takeawayTableFrom: '901',
+        takeawayTableTo: '999',
         orderLayout: 'sidebar',
         orderTheme: 'indigo',
         showSideNav: true,
@@ -1050,6 +1101,7 @@ export default {
         requiredCategoryId: '',
         teaSeatSyncPax: false,
         servingNewItemsOnly: false,
+        directPayMode: false,
         comboNameOnce: false,
         bundleEnabled: false,
         bundleMode: 'auto',
@@ -1057,6 +1109,7 @@ export default {
         soldOutDailyReset: false,
         jumpPriceEnabled: true,
         failoverNotify: true,
+        failoverTimeout: 45,
         cancelItemPrint: { kitchen: true, workstation: false },
         posFontFamily: '',
         posFontUrl: '',
@@ -1207,6 +1260,27 @@ export default {
       arr.splice(idx, 1)
       arr.splice(j, 0, tmp)
     },
+    sbCopyColor (idx) {
+      const item = this.sidebarButtons[idx]
+      if (!item) return
+      this.sbCopiedColor = { bgColor: item.bgColor || '', textColor: item.textColor || '' }
+      this.$message({ type: 'success', message: '已複製配色' })
+    },
+    sbPasteColor (idx) {
+      if (!this.sbCopiedColor) return
+      const item = this.sidebarButtons[idx]
+      if (!item) return
+      item.bgColor = this.sbCopiedColor.bgColor
+      item.textColor = this.sbCopiedColor.textColor
+    },
+    sbApplyColorToAll () {
+      if (!this.sbCopiedColor) return
+      this.sidebarButtons.forEach(b => {
+        b.bgColor = this.sbCopiedColor.bgColor
+        b.textColor = this.sbCopiedColor.textColor
+      })
+      this.$message({ type: 'success', message: '已套用配色到全部按鈕' })
+    },
     simBtnStyle (b) {
       const fs = (b.fontSize || 0) ? b.fontSize : this.posBtnSettings.fontSize
       const w = (b.width || 0) ? b.width : this.posBtnSettings.width
@@ -1334,8 +1408,13 @@ export default {
           this.form.sideQtyMode = d.sideQtyMode || 'pending'
           this.form.modCodeUIMode = d.modCodeUIMode || 'A'
           this.form.reprintMinLevel = d.reprintMinLevel == null ? 3 : d.reprintMinLevel
+          this.form.dineInPrintCopies = d.dineInPrintCopies == null ? 1 : d.dineInPrintCopies
+          this.form.takeawayPrintCopies = d.takeawayPrintCopies == null ? 1 : d.takeawayPrintCopies
           this.form.dineInPrefix = d.dineInPrefix || '10'
-          this.form.takeawayPrefix = d.takeawayPrefix || '99'
+          this.form.takeawayTablePrefix = d.takeawayTablePrefix || '99'
+          this.form.takeawayPrefix = d.takeawayPrefix || '88'
+          this.form.takeawayTableFrom = d.takeawayTableFrom || '901'
+          this.form.takeawayTableTo = d.takeawayTableTo || '999'
           this.form.orderLayout = d.orderLayout || 'sidebar'
           this.form.orderTheme = d.orderTheme || 'indigo'
           this.form.showSideNav = d.showSideNav !== false
@@ -1376,6 +1455,7 @@ export default {
           this.form.requiredCategoryId = d.requiredCategoryId || ''
           this.form.teaSeatSyncPax = !!d.teaSeatSyncPax
           this.form.servingNewItemsOnly = !!d.servingNewItemsOnly
+          this.form.directPayMode = !!d.directPayMode
           this.form.comboNameOnce = !!d.comboNameOnce
           this.form.bundleEnabled = !!d.bundleEnabled
           this.form.bundleMode = d.bundleMode || 'auto'
@@ -1383,6 +1463,7 @@ export default {
           this.form.soldOutDailyReset = !!d.soldOutDailyReset
           this.form.jumpPriceEnabled = d.jumpPriceEnabled !== false
           this.form.failoverNotify = d.failoverNotify !== false
+          this.form.failoverTimeout = [30, 45, 75, 90].indexOf(Number(d.failoverTimeout)) >= 0 ? Number(d.failoverTimeout) : 45
           const cip = d.cancelItemPrint || {}
           this.form.cancelItemPrint = { kitchen: cip.kitchen !== false, workstation: cip.workstation === true }
           this.form.posFontFamily = d.posFontFamily || ''

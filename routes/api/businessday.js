@@ -258,12 +258,30 @@ router.post('/close', async (req, res) => {
     const totalIncome = money(allOrders.reduce((s, o) => s + (o.totalPrice || 0), 0))
     const cashIncome = money(allOrders.filter(o => /現金|cash/i.test(o.payMethod || '')).reduce((s, o) => s + (o.totalPrice || 0), 0))
     const cardIncome = money(allOrders.filter(o => /信用卡|credit|卡/i.test(o.payMethod || '')).reduce((s, o) => s + (o.totalPrice || 0), 0))
+    // 重複結算：先把前一次結算結果留存到 closeHistory，避免直接覆蓋而無法回溯
+    const isReclose = businessDay.status === 'closed'
+    if (isReclose) {
+      businessDay.closeHistory = businessDay.closeHistory || []
+      businessDay.closeHistory.push({
+        closedAt: businessDay.closeTime || new Date(),
+        startingCash: businessDay.startingCash,
+        countedCash: businessDay.countedCash,
+        closeRemark: businessDay.closeRemark || '',
+        closedBy: businessDay.closedBy || '',
+        snapshot: businessDay.snapshot || {}
+      })
+    }
     businessDay.startingCash = Number(startingCash) || 0
     businessDay.countedCash = Number(countedCash) || 0
     businessDay.closeRemark = remark || ''
     businessDay.closeTime = new Date()
     businessDay.status = 'closed'
     businessDay.closedBy = req.body.staffName || req.body.staffNo || ''
+    // 日結序號（Close ID）：依已日結天數遞增，重複日結沿用原序號
+    if (!businessDay.closeSeq) {
+      const lastClosed = await BusinessDay.findOne({ status: 'closed', closeSeq: { $gt: 0 } }).sort({ closeSeq: -1 }).lean().exec()
+      businessDay.closeSeq = (lastClosed && lastClosed.closeSeq ? lastClosed.closeSeq : 0) + 1
+    }
     businessDay.snapshot = {
       orderCount: allOrders.length,
       totalIncome,
@@ -282,6 +300,20 @@ router.post('/close', async (req, res) => {
       departmentTotals: await computeDepartmentTotals(allOrders)
     }
     await businessDay.save()
+
+    // 日結留痕（含重複結算），供後台「員工操作日誌」追蹤
+    try {
+      const op = operatorOf(req)
+      await AuditLog.create({
+        staffNo: req.body.staffNo || op.staffNo || '',
+        staffName: req.body.staffName || op.staffName || '',
+        action: 'dayClose',
+        actionLabel: isReclose ? '重複結算' : '每日結算',
+        detail: `開機金額 $${money(businessDay.startingCash)}｜銀櫃實點 $${money(businessDay.countedCash)}｜營業額 $${money(totalIncome)}`,
+        amount: totalIncome,
+        date: new Date()
+      })
+    } catch (e) { /* ignore */ }
 
     // 每日完結後清除搭枱子枱（shareSuffix 非空者），讓子枱不殘留在枱面
     await Table.deleteMany({ shareSuffix: { $exists: true, $ne: '' } }).exec()

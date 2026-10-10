@@ -3,10 +3,13 @@
 // 純函數：不依賴 Vue / 後端，方便測試與未來在 POS / QR 端共用。
 
 // 單一貨品是否可參與撞餐
-// 排除：套餐、贈送、已折扣、已改價、無 _id 的品項
+// 排除：贈送、已折扣、已改價、無 _id 的品項；
+// 套餐（combo）僅在被標記為主菜組別（mainGroupId，主食側）時參與撞餐，
+// 否則維持既有行為（套餐本身已含組合價，不再重複撞餐）。
 export function isBundlableItem (item) {
   if (!item) return false
-  if (item.comboId || item._isCombo || item._itemType === 'combo') return false
+  const isCombo = !!(item.comboId || item._isCombo || item._itemType === 'combo' || item.isCombo)
+  if (isCombo && !item.mainGroupId) return false
   if (item.free) return false
   if (item.discount !== undefined && Number(item.discount) < 1) return false
   if (Number(item.customPrice) > 0) return false

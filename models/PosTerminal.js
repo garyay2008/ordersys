@@ -6,7 +6,6 @@ const Schema = mongoose.Schema
 const PrinterConfigSchema = new Schema({
   ip: { type: String, default: '' },
   port: { type: Number, default: 9100 },
-  queue: { type: String, default: '' }, // CUPS 佇列名（留空走 IP 直連）
   tech: { type: String, default: 'thermal' }, // thermal=感熱 | dot=針式
   model: { type: String, default: '' }, // tmt88 / xp80ts / tmu220 / ''=自訂
   dpi: { type: Number, default: 180 },

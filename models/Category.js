@@ -10,6 +10,11 @@ const CategorySchema = new Schema({
     type: String,
     required: true
   },
+  // 分類說明（客人 QR 點餐版面顯示在分類標題下方）
+  describe: {
+    type: String,
+    default: ''
+  },
   // 部門：頂層分組（對應 ISM department，如 廚部/水吧），空字串 = 未分類
   department: {
     type: String,
@@ -96,6 +101,11 @@ const CategorySchema = new Schema({
   rootOrder: {
     type: Number,
     default: null
+  },
+  // 報表歸類：食品 / 飲品 / ''（日結清機報表「營業帳項」按此聚合）
+  reportGroup: {
+    type: String,
+    default: ''
   }
 })
 

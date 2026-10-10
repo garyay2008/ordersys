@@ -69,7 +69,8 @@ router.get('/get', (req, res) => {
           { funcCode: '17', visible: true },
           { funcCode: '44', visible: true },
           { funcCode: '43', visible: true },
-          { funcCode: '49', visible: true }
+          { funcCode: '49', visible: true },
+          { funcCode: '56', visible: true }
         ]
       } else {
         if (!data.managerMenu.some(m => String(m.funcCode) === '44')) {
@@ -77,6 +78,9 @@ router.get('/get', (req, res) => {
         }
         if (!data.managerMenu.some(m => String(m.funcCode) === '49')) {
           data.managerMenu.push({ funcCode: '49', visible: true })
+        }
+        if (!data.managerMenu.some(m => String(m.funcCode) === '56')) {
+          data.managerMenu.push({ funcCode: '56', visible: true })
         }
       }
       if (!data.sideQtyMode) {
@@ -93,6 +97,12 @@ router.get('/get', (req, res) => {
       }
       if (data.reprintMinLevel == null) {
         data.reprintMinLevel = 3
+      }
+      if (data.dineInPrintCopies == null) {
+        data.dineInPrintCopies = 1
+      }
+      if (data.takeawayPrintCopies == null) {
+        data.takeawayPrintCopies = 1
       }
       if (!data.jumpPriceRules) {
         data.jumpPriceRules = []
@@ -118,6 +128,9 @@ router.get('/get', (req, res) => {
       if (data.failoverNotify == null) {
         data.failoverNotify = true
       }
+      if (data.failoverTimeout == null) {
+        data.failoverTimeout = 45
+      }
       if (data.soldOutDailyReset == null) {
         data.soldOutDailyReset = false
       }
@@ -127,8 +140,9 @@ router.get('/get', (req, res) => {
       if (!data.sidebarButtons || !data.sidebarButtons.length) {
         data.sidebarButtons = [
           { id: 'grid', label: '枱號圖', funcCode: '23', visible: true, bgColor: '', textColor: '' },
-          { id: 'takeaway', label: '外賣', funcCode: '24', visible: true, bgColor: '', textColor: '' },
+          { id: 'takeaway', label: '外賣枱', funcCode: '24', visible: true, bgColor: '', textColor: '' },
           { id: 'dineIn', label: '堂食', funcCode: '25', visible: true, bgColor: '', textColor: '' },
+          { id: 'delivery', label: '外賣', funcCode: '57', visible: true, bgColor: '', textColor: '' },
           { id: 'list', label: '查看單據', funcCode: '26', visible: true, bgColor: '', textColor: '' },
           { id: 'search', label: '搜尋編號', funcCode: '27', visible: true, bgColor: '', textColor: '' },
           { id: 'history', label: '往日單據', funcCode: '28', visible: true, bgColor: '', textColor: '' },
@@ -141,9 +155,9 @@ router.get('/get', (req, res) => {
       } else {
         var sbMap = {}
         data.sidebarButtons.forEach(function (b) { sbMap[b.id] = b })
-        var sbIds = ['grid', 'takeaway', 'dineIn', 'list', 'search', 'history', 'refresh', 'addTable', 'batchPrint', 'report', 'settings']
-        var sbLabels = { grid: '枱號圖', takeaway: '外賣', dineIn: '堂食', list: '查看單據', search: '搜尋編號', history: '往日單據', refresh: '重新整理', addTable: '快速開枱', batchPrint: '批量列印', report: '報表', settings: '經理功能' }
-        var sbDefaultFc = { grid: '23', takeaway: '24', dineIn: '25', list: '26', search: '27', history: '28', refresh: '29', addTable: '30', batchPrint: '31', report: '32', settings: '33' }
+        var sbIds = ['grid', 'takeaway', 'dineIn', 'delivery', 'list', 'search', 'history', 'refresh', 'addTable', 'batchPrint', 'report', 'settings']
+        var sbLabels = { grid: '枱號圖', takeaway: '外賣枱', dineIn: '堂食', delivery: '外賣', list: '查看單據', search: '搜尋編號', history: '往日單據', refresh: '重新整理', addTable: '快速開枱', batchPrint: '批量列印', report: '報表', settings: '經理功能' }
+        var sbDefaultFc = { grid: '23', takeaway: '24', dineIn: '25', delivery: '57', list: '26', search: '27', history: '28', refresh: '29', addTable: '30', batchPrint: '31', report: '32', settings: '33' }
         data.sidebarButtons = sbIds.map(function (id) {
           var saved = sbMap[id] || {}
           return { id: id, label: saved.label || sbLabels[id], funcCode: saved.funcCode || sbDefaultFc[id], visible: saved.visible !== false, bgColor: saved.bgColor || '', textColor: saved.textColor || '' }
@@ -173,6 +187,11 @@ router.post(
       } else {
         await PosSetting.findOneAndUpdate({}, { $set: data }).exec()
       }
+      // 更新列印相關 PosSetting 快取（外賣枱枱號範圍等同步票據欄位）
+      try {
+        const updated = await PosSetting.findOne().lean().exec()
+        require('../../plugins/Printer').setPosSettingCache(updated)
+      } catch (e) {}
       res.send('POS 設置保存成功！')
       try {
         const io = socketio.getIO()

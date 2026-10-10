@@ -86,7 +86,7 @@
         <el-form-item label="區域">
           <el-select v-model="form.zone" placeholder="選擇區域" style="width: 100%;">
             <el-option label="堂食" value="堂食"></el-option>
-            <el-option label="外賣" value="外賣"></el-option>
+            <el-option label="外賣枱" value="外賣枱"></el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="啟用">

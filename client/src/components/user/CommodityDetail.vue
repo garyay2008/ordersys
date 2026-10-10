@@ -27,7 +27,7 @@
                         <span v-for="(m, i) in modCodeList" :key="i"
                               class="spec-item" :class="{active: selectedMods.some(x => x && (x.id || x.name) === m._id)}"
                               @click.stop="toggleMod(m)">
-                            {{ m.code ? m.code + ' ' : '' }}{{ m.name }}<template v-if="qrSetting.showModPrices && (m.price || 0) > 0"> (+${{ m.price }})</template><i v-if="m.mandatory" class="req-badge">必選</i>
+                            {{ m.name }}<template v-if="qrSetting.showModPrices && (m.price || 0) > 0"> (+${{ m.price }})</template><i v-if="m.mandatory" class="req-badge">必選</i>
                         </span>
                         <el-input v-model="customMod" placeholder="自定義(如 走蔥)" size="mini"
                                   style="width: 130px; display: inline-block; margin-left: 6px;"
@@ -37,9 +37,6 @@
                         <div class="cartcontrol-wrapper" v-if="!(food.specs && food.specs.length)">
                             <CartControl :food="food"></CartControl>
                         </div>
-                        <transition name="fade">
-                            <div class="buy" @click.stop.prevent="addFirst($event)" v-show="!food.count || food.count === 0">加入購物車</div>
-                        </transition>
                     </template>
                         <div v-else class="sold-out">已售罄</div>
                 </div>
@@ -49,6 +46,9 @@
                     <p class="text">{{food.describe}}</p>
                 </div>
             </div>
+            <transition name="fade">
+                <div v-if="!food.soldOut" class="buy" :class="{ submitting }" @click.stop.prevent="addFirst($event)">加入購物車</div>
+            </transition>
         </div>
     </transition>
 </template>
@@ -65,6 +65,10 @@ export default {
     qrSetting: {
       type: Object,
       default: () => ({ showImages: true, showDescribe: true, showStock: false, showModPrices: true, showSoldOutItems: true, showDiscount: true, showSpecs: false })
+    },
+    channel: {
+      type: String,
+      default: 'qr'
     }
   },
   data () {
@@ -73,7 +77,9 @@ export default {
       selectedSpec: 0,
       selectedMods: [],
       modCodeList: [],
-      customMod: ''
+      customMod: '',
+      submitting: false,
+      editItem: null
     }
   },
   computed: {
@@ -86,11 +92,25 @@ export default {
     }
   },
   methods: {
-    show () {
+    show (food, editItem) {
       this.showFlag = true
+      this.$emit('open')
       this.selectedSpec = 0
       this.selectedMods = []
       this.customMod = ''
+      this.submitting = false
+      this.editItem = editItem || null
+      if (this.editItem) {
+        const specs = (food && food.specs) || this.food.specs || []
+        if (this.editItem.spec) {
+          const idx = specs.findIndex(sp => sp.name === this.editItem.spec)
+          if (idx >= 0) this.selectedSpec = idx
+        }
+        this.selectedMods = (this.editItem.mods || []).map(m => {
+          if (typeof m === 'string') return { name: m }
+          return { id: m.id, name: m.name, price: m.price || 0, station: m.station || '' }
+        })
+      }
       this.loadModCodes()
       this.$nextTick(() => {
         if (!this.scroll) {
@@ -103,14 +123,22 @@ export default {
       })
     },
     loadModCodes () {
-      this.$axios.get('/api/modcode/list', { params: { channel: 'qr' } })
+      this.$axios.get('/api/modcode/list', { params: { channel: this.channel } })
         .then(res => {
           const all = res.data || []
           const cats = this.food.modCategories || []
           // 依商品的改碼類別過濾；未設定改碼類別則不顯示任何口味
           this.modCodeList = cats.length ? all.filter(m => cats.indexOf(m.category) >= 0) : []
+          this.$nextTick(() => {
+            if (this.scroll) this.scroll.refresh()
+          })
         })
-        .catch(() => { this.modCodeList = [] })
+        .catch(() => {
+          this.modCodeList = []
+          this.$nextTick(() => {
+            if (this.scroll) this.scroll.refresh()
+          })
+        })
     },
     toggleMod (m) {
       const idx = this.selectedMods.findIndex(x => x && (x.id || x.name) === m._id)
@@ -151,28 +179,42 @@ export default {
     },
     hide () {
       this.showFlag = false
+      this.$emit('close')
     },
     addFirst (event) {
       if (!event._constructed) {
         return
       }
+      if (this.submitting) return
       if (!this.validateMandatoryMods()) return
+      this.submitting = true
+      setTimeout(() => { this.submitting = false }, 400)
       const specs = this.qrSetting.showSpecs ? this.food.specs : []
       const mods = this.selectedMods.slice()
       const modsExtra = mods.reduce((sum, m) => sum + (m && m.price ? Number(m.price) : 0), 0)
-      if ((specs && specs.length) || mods.length) {
-        const s = (specs && specs.length) ? (specs[this.selectedSpec] || specs[0]) : null
-        this.$emit('add', {
-          _id: this.food._id,
-          commodityId: this.food._id,
-          name: this.food.name + (s ? '(' + s.name + ')' : ''),
-          price: Math.round(((s ? s.price : this.food.price) + modsExtra) * 100) / 100,
-          img: this.food.img,
-          spec: s ? s.name : undefined,
-          mods: mods.length ? mods : undefined
-        })
-      } else {
+      const s = (specs && specs.length) ? (specs[this.selectedSpec] || specs[0]) : null
+      const hasModOrSpec = (specs && specs.length) || mods.length
+      if (!hasModOrSpec && !this.editItem) {
         this.$set(this.food, 'count', 1)
+        this.hide()
+        return
+      }
+      const payload = {
+        _id: this.food._id,
+        commodityId: this.food._id,
+        name: this.food.name + (s ? '(' + s.name + ')' : ''),
+        price: Math.round(((s ? s.price : this.food.price) + modsExtra) * 100) / 100,
+        img: this.food.img,
+        spec: s ? s.name : undefined,
+        mods: mods.length ? mods : undefined
+      }
+      if (this.editItem) {
+        this.$emit('update', { payload, targetKey: this.editItem.key })
+        this.hide()
+      } else {
+        if (this.food.count) this.food.count = 0
+        this.$emit('add', payload)
+        this.hide()
       }
     }
   },
@@ -250,15 +292,18 @@ export default {
     .food .image-header > .back > .el-icon-arrow-left{
         display: block;
         padding: 10px 14px;
-        font-size: 20px;
+        font-size: 22px;
         color: #fff;
-        background: rgba(0,0,0,0.25);
+        background: var(--accent);
         border-radius: 0 20px 20px 0;
-        backdrop-filter: blur(4px);
+        box-shadow: 0 2px 10px var(--accent-glow);
+    }
+    .food > .fond-content{
+        padding-bottom: 60px;
     }
     .food .contents{
         position: relative;
-        padding: 20px 18px 64px;
+        padding: 20px 18px 20px;
         background: #fff;
         border-radius: 0;
     }
@@ -342,30 +387,36 @@ export default {
         right: 14px;
         bottom: 14px;
     }
-    .food .contents > .buy{
+    .food > .buy{
         position: absolute;
-        right: 18px;
-        bottom: 18px;
+        left: 0;
+        right: 0;
+        bottom: 0;
         z-index: 10;
-        height: 32px;
-        line-height: 32px;
-        padding: 0 16px;
+        height: 48px;
+        line-height: 48px;
+        padding: 0;
         box-sizing: border-box;
-        border-radius: 16px;
-        font-size: 13px;
-        font-weight: 600;
+        border-radius: 0;
+        text-align: center;
+        font-size: 15px;
+        font-weight: 700;
         color: #fff;
         background: linear-gradient(135deg, var(--primary), var(--primary2));
-        box-shadow: 0 4px 12px var(--primary-glow);
+        box-shadow: 0 -2px 12px var(--primary-glow);
         transition: all 0.2s ease;
     }
-    .food .contents > .buy:active{
-        transform: scale(0.96);
+    .food > .buy:active{
+        opacity: 0.85;
     }
-    .food .contents > .buy.fade-enter-active, .food .contents > .buy.fade-leave-active{
+    .food > .buy.submitting{
+        opacity: 0.6;
+        pointer-events: none;
+    }
+    .food > .buy.fade-enter-active, .food > .buy.fade-leave-active{
         transition: all 0.2s;
     }
-    .food .contents > .buy.fade-enter, .food .contents > .buy.fade-leave-to{
+    .food > .buy.fade-enter, .food > .buy.fade-leave-to{
         opacity: 0;
     }
     .food .info{

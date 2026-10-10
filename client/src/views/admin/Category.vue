@@ -177,9 +177,18 @@
         <el-form-item label="分類名稱" prop="cName">
           <el-input v-model="form.cName" placeholder="請輸入分類名稱"></el-input>
         </el-form-item>
+        <el-form-item label="說明">
+          <el-input v-model="form.describe" type="textarea" :rows="2" placeholder="顯示在客人 QR 點餐版面分類標題下方（可留空）"></el-input>
+        </el-form-item>
         <el-form-item label="部門">
           <el-select v-model="form.department" placeholder="選擇部門" filterable clearable style="width: 100%;">
             <el-option v-for="d in departmentOptions" :key="d" :label="d" :value="d"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="報表歸類">
+          <el-select v-model="form.reportGroup" placeholder="日結報表分類" clearable style="width: 100%;">
+            <el-option label="食品" value="食品"></el-option>
+            <el-option label="飲品" value="飲品"></el-option>
           </el-select>
         </el-form-item>
 
@@ -404,7 +413,9 @@ export default {
       form: {
         code: '',
         cName: '',
+        describe: '',
         department: '',
+        reportGroup: '',
         active: true,
         parentId: '',
         serviceModes: ['堂食', '外賣', '自取'],
@@ -674,7 +685,9 @@ export default {
       this.form = {
         code: '',
         cName: '',
+        describe: '',
         department: '',
+        reportGroup: '',
         active: true,
         parentId: parentId || '',
         serviceModes: this.modeOptions.slice(),
@@ -694,7 +707,9 @@ export default {
       this.form = {
         code: row.code || '',
         cName: row.cName || '',
+        describe: row.describe || '',
         department: row.department || '',
+        reportGroup: row.reportGroup || '',
         active: row.active,
         parentId: row.parentId || '',
         serviceModes: (row.serviceModes || this.modeOptions).slice(),
@@ -719,7 +734,9 @@ export default {
         var payload = {
           code: self.form.code,
           cName: self.form.cName,
+          describe: self.form.describe || '',
           department: self.form.department || '',
+          reportGroup: self.form.reportGroup || '',
           active: self.form.active,
           parentId: self.form.parentId || null,
           serviceModes: self.form.serviceModes,

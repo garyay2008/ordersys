@@ -7,9 +7,8 @@ const MatchingRuleSchema = new Schema({
   name: { type: String, required: true }, // 規則名稱，如：飯類 + 凍飲
   enabled: { type: Boolean, default: true },
   priority: { type: Number, default: 0 }, // 規則優先級（數字越大越優先）
-  triggerCategoryIds: { type: [String], default: [] }, // 主食分類（空 = 任意主食）
-  addonCategoryIds: { type: [String], default: [] }, // 跟餐分類（空 = 任意跟餐）
-  bundleGroupIds: { type: [String], default: [] }, // 跟餐組別（有值時撞組別，跟餐價取自組別，忽略 addonPrice）
+  triggerGroupIds: { type: [String], default: [] }, // 主菜組別（有值時以組別為主食側記認；空 = 任意主食）
+  bundleGroupIds: { type: [String], default: [] }, // 跟餐組別（有值時撞組別，跟餐價取自組別；空 = 任意跟餐，用 addonPrice）
   addonPrice: { type: Number, default: 0 }, // 跟餐價（撞餐時跟餐的特別價，主食保留原價）
   effectiveTime: {
     type: { type: String, default: 'permanent' }, // permanent / dateRange / weekly / disabled

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose')
 const Schema = mongoose.Schema
+const Commodity = require('./Commodity')
 
 // 中式客製化選項（Modifier）：如 少油 / 走蔥 / 蔥絲多
 const ModifierSchema = new Schema({
@@ -151,6 +152,11 @@ const ComboSchema = new Schema({
     type: String,
     required: true
   },
+  // QR 點餐顯示名稱（客人手機端）；留空則回退用 name（POS 套餐名稱）
+  qrName: {
+    type: String,
+    default: ''
+  },
   code: {
     type: String,
     default: ''
@@ -187,11 +193,6 @@ const ComboSchema = new Schema({
     type: [ComboGroupSchema],
     default: []
   },
-  // 引用的可重用跟餐組（AddonGroup._id）：點餐端讀取時與 groups 一併展開
-  addonGroupIds: {
-    type: [String],
-    default: []
-  },
   departmentSplit: {
     type: [DepartmentSplitSchema],
     default: []
@@ -203,6 +204,11 @@ const ComboSchema = new Schema({
   autoPopup: {
     type: Boolean,
     default: true
+  },
+  // 不列印套餐名：true 時後廚/服務票種把套餐拆成子品項獨立打印，不印套餐名標題（收據/印單小票仍保留套餐名）
+  noPrintComboName: {
+    type: Boolean,
+    default: false
   },
   // 自動撞餐（背景碰撞）：false 強制不參與；true 強制參與；未設定時依 type（fixed 不自動，其餘自動）
   autoBundle: {
@@ -221,6 +227,11 @@ const ComboSchema = new Schema({
     type: Boolean,
     default: true
   },
+  // QR 顯示自動選取品項名稱：false 時 QR 套餐選擇頁不顯示 fixed（自動選取）品項名稱（POS 永遠顯示，不受影響）
+  showFixedNames: {
+    type: Boolean,
+    default: true
+  },
   soldOut: {
     type: Boolean,
     default: false
@@ -234,10 +245,52 @@ const ComboSchema = new Schema({
     type: Boolean,
     default: true
   },
+  // 主菜組別（MainGroup._id）：撞餐規則的主食側記認，'' = 非主食
+  mainGroupId: {
+    type: String,
+    default: ''
+  },
   date: {
     type: Date,
     default: Date.now
   }
 })
 
-module.exports = Combo = mongoose.model('combo', ComboSchema)
+// 依 Commodity.soldOut 為套餐內貨品（groups[].items[].commodityId）補上 soldOut 旗標（唯讀，不寫回資料庫）。
+// 供點餐端（POS/QR）在套餐選擇時自動繼承全局沽清。
+async function stampComboItemsSoldOut (combos) {
+  if (!combos || !combos.length) return combos
+  const ids = []
+  const seen = new Set()
+  const pushId = v => {
+    if (!v) return
+    const s = String(v)
+    if (!seen.has(s)) { seen.add(s); ids.push(s) }
+  }
+  combos.forEach(c => {
+    ;(c.groups || []).forEach(g => { (g.items || []).forEach(it => pushId(it.commodityId)) })
+    ;(c.mainDishes || []).forEach(m => pushId(m.commodityId))
+  })
+  if (!ids.length) return combos
+  const commodities = await Commodity.find({ _id: { $in: ids } }).select('_id soldOut').lean().exec()
+  const soldOutMap = {}
+  commodities.forEach(c => { soldOutMap[String(c._id)] = !!c.soldOut })
+  return combos.map(c => {
+    const groups = (c.groups || []).map(g => {
+      const items = (g.items || []).map(it => {
+        if (!it.commodityId) return it
+        const s = soldOutMap[String(it.commodityId)]
+        if (s === undefined) return it
+        return Object.assign({}, it, { soldOut: s })
+      })
+      return Object.assign({}, g, { items })
+    })
+    return Object.assign({}, c, { groups })
+  })
+}
+
+const Combo = mongoose.model('combo', ComboSchema)
+
+Combo.stampItemsSoldOut = stampComboItemsSoldOut
+
+module.exports = Combo

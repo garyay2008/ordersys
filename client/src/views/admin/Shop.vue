@@ -22,6 +22,9 @@
                     </el-upload>
                 </el-form-item>
 
+                <el-form-item label="店鋪代碼" prop="shopCode">
+                    <el-input v-model="form.shopCode" placeholder="請輸入店鋪代碼！"></el-input>
+                </el-form-item>
                 <el-form-item label="店鋪名稱" prop="shopName">
                     <el-input v-model="form.shopName" placeholder="請輸入店鋪名稱！"></el-input>
                 </el-form-item>
@@ -51,6 +54,7 @@ export default {
       form: {
         id: '',
         shopImg: '',
+        shopCode: '',
         shopName: '',
         shopIntro: '',
         shopNotice: ''
@@ -121,6 +125,7 @@ export default {
       .then(res => {
         this.form.id = res.data._id
         this.form.shopImg = res.data.shopImg
+        this.form.shopCode = res.data.shopCode || '001'
         this.form.shopName = res.data.shopName
         this.form.shopIntro = res.data.shopIntro
         this.form.shopNotice = res.data.shopNotice

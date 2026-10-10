@@ -326,6 +326,7 @@ export default {
           mods: it.mods,
           isCombo: it.isCombo,
           contents: it.contents,
+          noPrintComboName: it.noPrintComboName,
           categoryId: it.categoryId
         })),
         totalPrice: this.cartTotal,

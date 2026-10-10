@@ -79,6 +79,12 @@ const OrderSchema = new Schema({
     type: String,
     default: ''
   },
+  // 小費（信用卡付款時可加）
+  tip: {
+    type: Number,
+    default: 0,
+    set: roundMoney
+  },
   settled: {
     type: Number,
     default: 0
@@ -134,6 +140,11 @@ const OrderSchema = new Schema({
   refundDate: {
     type: Date
   },
+  // 付款取消（反結賬）快照：記錄被沖銷付款的原始付款時間（settledAt 反結賬時會被清空）
+  paymentCancelAt: {
+    type: Date,
+    default: null
+  },
   relisted: {
     type: Boolean,
     default: false
@@ -180,8 +191,18 @@ const OrderSchema = new Schema({
     type: String,
     default: ''
   },
+  // 印單小票流水號（收銀機 orderSeq，Z-Report 後歸零）
+  orderSeq: {
+    type: String,
+    default: ''
+  },
   // 枱面點餐碼 Token（POS「印點餐碼」產生；重印沿用原 token；結帳後 state=1 失效）
   qrToken: {
+    type: String,
+    default: ''
+  },
+  // 外賣叫號（每日重置的遞增流水號，格式 001；僅外賣/外賣枱等 deskNo=0 訂單使用）
+  takeawayNo: {
     type: String,
     default: ''
   },
@@ -189,6 +210,11 @@ const OrderSchema = new Schema({
     type: Number,
     required: true,
     default: 0
+  },
+  // 埋單（結帳）時間：分市報表「埋單計」使用；反結賬時清空
+  settledAt: {
+    type: Date,
+    default: null
   },
   businessDayId: {
     type: Schema.Types.ObjectId,

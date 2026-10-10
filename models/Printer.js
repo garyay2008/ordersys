@@ -7,10 +7,6 @@ const StationPrinterSchema = new Schema({
     type: String,
     default: '' // 檔口名，如 快蒸/慢蒸/腸粉煎炸/大排檔/上什/粉面/海鮮/冷盤/熱炒
   },
-  queue: {
-    type: String,
-    default: '' // CUPS 佇列名（如 RECEIPT/KITCHEN/SERVING）；留空則走 IP 直連
-  },
   role: {
     type: String,
     default: 'kitchen' // kitchen=廚房檔 | bar=水吧 | cashier=收銀臺 | expeditor=傳菜總檯
@@ -59,9 +55,13 @@ const StationPrinterSchema = new Schema({
     type: String,
     default: '' // 備援檔口名：主機離線時自動跳飛到此檔口打印機
   },
+  fallbackTo2: {
+    type: String,
+    default: '' // 第二備援檔口名：第一備援機也離線時，跳飛到此檔口打印機
+  },
   timeout: {
     type: Number,
-    default: 8000 // 超時(ms)：直連=連線逾時；CUPS=等待列印完成逾時。逾時即判離線，跳飛備援機
+    default: 8000 // 超時(ms)：連線逾時。逾時即判離線，跳飛備援機
   },
   retries: {
     type: Number,
@@ -70,6 +70,10 @@ const StationPrinterSchema = new Schema({
   retryDelay: {
     type: Number,
     default: 400 // 重試間隔(ms)
+  },
+  statusCheck: {
+    type: Boolean,
+    default: true // DLE EOT 即時狀態檢查（缺紙/開蓋/離線）；USB 轉 LAN 列印伺服器不支援時建議關閉以提速
   }
 }, { _id: false })
 
@@ -83,10 +87,6 @@ const ZoneSchema = new Schema({
     type: [Number],
     default: []
   },
-  serviceQueue: {
-    type: String,
-    default: '' // CUPS 佇列名（留空走 serviceIp 直連）
-  },
   serviceIp: {
     type: String,
     default: ''
@@ -94,10 +94,6 @@ const ZoneSchema = new Schema({
   servicePort: {
     type: Number,
     default: 9100
-  },
-  cashierQueue: {
-    type: String,
-    default: '' // CUPS 佇列名（留空走 cashierIp 直連）
   },
   cashierIp: {
     type: String,
@@ -227,10 +223,6 @@ const PrinterSchema = new Schema({
     type: Number,
     default: 9100
   },
-  queue: {
-    type: String,
-    default: '' // 默認打印機 CUPS 佇列名（留空走 IP 直連）
-  },
   paperWidth: {
     type: Number,
     default: 58
@@ -262,7 +254,6 @@ const PrinterSchema = new Schema({
   centralPrint: {
     ip: { type: String, default: '' },
     port: { type: Number, default: 9100 },
-    queue: { type: String, default: '' },
     tech: { type: String, default: 'thermal' },
     model: { type: String, default: '' },
     dpi: { type: Number, default: 180 },

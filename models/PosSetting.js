@@ -9,7 +9,7 @@ const DEFAULT_BTN_PERMS = {
   clear: 1, submit: 1, send: 1,
   checkout: 2, soldout: 2, openDrawer: 1,
   refund: 3, report: 3, manager: 4, addTable: 3, releaseTable: 3,
-  showDetail: 1, deptSplit: 2
+  showDetail: 1, deptSplit: 2, bundle: 2
 }
 
 // POS 功能設定（服務費等）
@@ -134,9 +134,13 @@ const PosSettingSchema = new Schema({
   shareTableEnabled: { type: Boolean, default: false },
   // 手勢功能開關（左撥顯示明細／右撥隱藏／雙擊單項刪除／三擊整單刪除）
   gestureEnabled: { type: Boolean, default: true },
-  // 訂單編號前綴（堂食 / 外賣）
+  // 訂單編號前綴（堂食 / 外賣枱 / 外賣）
   dineInPrefix: { type: String, default: '10' },
-  takeawayPrefix: { type: String, default: '99' },
+  takeawayTablePrefix: { type: String, default: '99' },
+  takeawayPrefix: { type: String, default: '88' },
+  // 外賣枱枱號範圍（起訖，含）：外賣枱區域內、枱號落在範圍內時，票據枱號前顯示「外賣」二字
+  takeawayTableFrom: { type: String, default: '901' },
+  takeawayTableTo: { type: String, default: '999' },
   // 數字鍵盤「數量」按鈕模式：'pending'=預設數量（方案一），'select'=選中修改數量（方案二）
   sideQtyMode: {
     type: String,
@@ -152,12 +156,24 @@ const PosSettingSchema = new Schema({
     type: Number,
     default: 3
   },
+  // 印單小票印製次數（堂食 / 外賣，按下「印單」時依區域套用）
+  dineInPrintCopies: {
+    type: Number,
+    default: 1
+  },
+  takeawayPrintCopies: {
+    type: Number,
+    default: 1
+  },
   // 沽清每日自動重置：開啟後，手動沽清的品項於新營業日自動重售（保留庫存歸零的沽清）
   soldOutDailyReset: { type: Boolean, default: false },
   // 營業日截止時間（HH:mm），用於計算跨日（例如 03:00 表示凌晨3點後算新一天）
   businessDayCutoff: { type: String, default: '03:00' },
   // 跳飛 POS 通知：打印機跳飛（備援機/廚房通用機代印）時，POS 前台頂部顯示閃爍提示
   failoverNotify: { type: Boolean, default: true },
+  // 跳飛總時間（秒）：整條跳飛鏈（主機重試 + 備援機 + 廚房通用機）合計的上限，
+  // 逾時即停止嘗試並回報失敗；單次連線逾時仍由各打印機的 timeout 微調
+  failoverTimeout: { type: Number, default: 45 },
   // 公眾假期日期表（'YYYY-MM-DD'），用於「跳價錢設定」的 holiday 組別
   publicHolidays: { type: [String], default: [] },
   // 茶芥必選項目開關：開啟後結帳／印單需有必選貨品在單內
@@ -168,6 +184,8 @@ const PosSettingSchema = new Schema({
   teaSeatSyncPax: { type: Boolean, default: false },
   // 上菜紙只列印後加項目：開啟後，上菜紙只印新加入的品項；無後加品項時仍印整張單
   servingNewItemsOnly: { type: Boolean, default: false },
+  // 直接埋單模式：僅外賣模式下，送單/上菜紙/印單功能鍵改為結帳（落單即收錢）
+  directPayMode: { type: Boolean, default: false },
   // 套餐名稱只印一次：開啟後，後廚小票／追單的套餐子品項改為「套餐名標題 + 子品項縮排列」，不再每個子品項重複印套餐名
   comboNameOnce: { type: Boolean, default: false },
   // 撞餐功能：多項單點自動組合成套餐價
@@ -214,7 +232,7 @@ const PosSettingSchema = new Schema({
       start: { type: String, default: '' },         // HH:mm 生效時間
       end: { type: String, default: '' },           // HH:mm 結束時間（空 = 至當天結束）
       timing: { type: String, default: 'order' },   // open=開枱計 | order=入單計 | checkout=埋單計
-      mode: { type: String, default: 'all' },       // all=堂食+外賣 | 堂食 | 外賣
+      mode: { type: String, default: 'all' },       // all=堂食+外賣枱+外賣 | 堂食 | 外賣枱 | 外賣
       specIndex: { type: Number, default: 1 }       // 1~10 對應貨品 specs 順序
     }],
     default: []

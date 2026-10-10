@@ -46,7 +46,7 @@
             </template>
           </el-table-column>
           <el-table-column align="center" width="90" label="跟餐組">
-            <template slot-scope="scope">{{ (scope.row.groups || []).length + (scope.row.addonGroupIds || []).length }}</template>
+            <template slot-scope="scope">{{ (scope.row.groups || []).length }}</template>
           </el-table-column>
           <el-table-column align="center" width="100" label="撞餐時段">
             <template slot-scope="scope">{{ etLabel(scope.row.effectiveTime) }}</template>
@@ -180,18 +180,6 @@
 
         <el-row :gutter="16">
           <el-col :span="24">
-            <el-divider content-position="left">引用跟餐組（在「跟餐組管理」建立，可重複使用）</el-divider>
-            <div class="split-box">
-              <el-select v-model="form.addonGroupIds" multiple filterable placeholder="選擇要引用的跟餐組" style="width: 100%;">
-                <el-option v-for="g in addonGroups" :key="g._id" :label="g.name" :value="g._id"></el-option>
-              </el-select>
-              <div class="hint">引用後，本跟餐會額外帶出所選跟餐組的可選品項（與下方內嵌跟餐組並存）。</div>
-            </div>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="16">
-          <el-col :span="24">
             <el-divider content-position="left">跟餐組（跟餐可選品項，如飲品 / 湯）</el-divider>
             <div v-for="(g, gi) in form.groups" :key="'g' + gi" class="win-box">
               <div class="win-header">
@@ -241,7 +229,6 @@ export default {
       tableHeight: window.innerHeight - 160,
       departmentList: [],
       commodityOptions: [],
-      addonGroups: [],
       global: { bundleEnabled: false, bundleMode: 'auto', bundleRule: 'bestPrice' },
       weekdayOptions: [
         { value: 1, label: '一' },
@@ -270,7 +257,6 @@ export default {
         bundlePriority: 0,
         mainDishes: [],
         effectiveTime: { type: 'permanent', startDate: '', endDate: '', startTime: '', endTime: '', weekdays: [1, 2, 3, 4, 5], holidays: [] },
-        addonGroupIds: [],
         groups: []
       }
     },
@@ -300,13 +286,8 @@ export default {
       this.$axios.get('/api/combo/all')
         .then(res => {
           const all = res.data || []
-          this.tableData = all.filter(c => (c.groups || []).length || (c.addonGroupIds || []).length || (c.mainDishes || []).length)
+          this.tableData = all.filter(c => (c.groups || []).length || (c.mainDishes || []).length)
         })
-        .catch(err => console.log(err))
-    },
-    loadAddonGroups () {
-      this.$axios.get('/api/addongroup/all')
-        .then(res => { this.addonGroups = res.data || [] })
         .catch(err => console.log(err))
     },
     loadCommodities () {
@@ -365,7 +346,6 @@ export default {
         bundlePriority: row.bundlePriority || 0,
         mainDishes: (row.mainDishes || []).map(d => ({ commodityId: d.commodityId || '', name: d.name || '' })),
         effectiveTime: this.cloneEt(row.effectiveTime),
-        addonGroupIds: (row.addonGroupIds || []).slice(),
         groups
       }
     },
@@ -459,9 +439,8 @@ export default {
             items
           })
         })
-        const addonGroupIds = (this.form.addonGroupIds || []).filter(id => !!id)
-        if (!groups.length && !addonGroupIds.length) {
-          this.$message({ type: 'warning', message: '請至少添加一個跟餐組或引用一個跟餐組' })
+        if (!groups.length) {
+          this.$message({ type: 'warning', message: '請至少添加一個跟餐組' })
           return
         }
         const payload = {
@@ -476,7 +455,6 @@ export default {
           mainDishes: (this.form.mainDishes || []).filter(d => d.commodityId && d.name).map(d => ({ commodityId: d.commodityId, name: d.name })),
           effectiveTime: this.cloneEt(this.form.effectiveTime),
           bundlePriority: Number(this.form.bundlePriority) || 0,
-          addonGroupIds,
           groups
         }
         if (this.form.autoBundle === 'on') payload.autoBundle = true
@@ -498,7 +476,6 @@ export default {
   created () {
     this.loadData()
     this.loadCommodities()
-    this.loadAddonGroups()
     this.loadGlobal()
     this.$axios.get('/api/department/list')
       .then(res => {

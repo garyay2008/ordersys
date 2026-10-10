@@ -164,8 +164,8 @@
     </el-dialog>
 
     <!-- 添加改碼類別 -->
-    <el-dialog title="添加改碼類別" :visible.sync="catAddDialog.show" width="380px" append-to-body>
-      <el-form label-width="80px" size="small">
+    <el-dialog title="添加改碼類別" :visible.sync="catAddDialog.show" width="500px" append-to-body>
+      <el-form label-width="90px" size="small">
         <el-form-item label="類別名稱">
           <el-input v-model="catAddDialog.name" placeholder="如 甜度與冰量"></el-input>
         </el-form-item>
@@ -176,6 +176,19 @@
           <el-switch v-model="catAddDialog.mandatory"></el-switch>
           <span class="tip">點選貨品時自動彈出此類別改碼選擇</span>
         </el-form-item>
+        <el-form-item label="最少可選">
+          <el-input-number v-model="catAddDialog.minSelect" :min="0" controls-position="right" style="width: 140px;"></el-input-number>
+          <span class="tip">0=不限</span>
+        </el-form-item>
+        <el-form-item label="最多可選">
+          <el-input-number v-model="catAddDialog.maxSelect" :min="0" controls-position="right" style="width: 140px;"></el-input-number>
+          <span class="tip">0=不限</span>
+        </el-form-item>
+        <el-form-item label="自動彈出貨品">
+          <el-select v-model="catAddDialog.commodityIds" multiple filterable clearable placeholder="留空=所有引用此類別的貨品" style="width: 100%;">
+            <el-option v-for="c in commodities" :key="c._id" :label="(c.plu ? c.plu + ' ' : '') + c.name" :value="c._id"></el-option>
+          </el-select>
+        </el-form-item>
       </el-form>
       <div slot="footer">
         <el-button size="small" @click="catAddDialog.show = false">取 消</el-button>
@@ -184,8 +197,8 @@
     </el-dialog>
 
     <!-- 編輯改碼類別 -->
-    <el-dialog title="編輯改碼類別" :visible.sync="catEditDialog.show" width="380px" append-to-body>
-      <el-form label-width="80px" size="small">
+    <el-dialog title="編輯改碼類別" :visible.sync="catEditDialog.show" width="500px" append-to-body>
+      <el-form label-width="90px" size="small">
         <el-form-item label="類別名稱">
           <el-input v-model="catEditDialog.name"></el-input>
         </el-form-item>
@@ -195,6 +208,19 @@
         <el-form-item label="自動彈出">
           <el-switch v-model="catEditDialog.mandatory"></el-switch>
           <span class="tip">點選貨品時自動彈出此類別改碼選擇</span>
+        </el-form-item>
+        <el-form-item label="最少可選">
+          <el-input-number v-model="catEditDialog.minSelect" :min="0" controls-position="right" style="width: 140px;"></el-input-number>
+          <span class="tip">0=不限</span>
+        </el-form-item>
+        <el-form-item label="最多可選">
+          <el-input-number v-model="catEditDialog.maxSelect" :min="0" controls-position="right" style="width: 140px;"></el-input-number>
+          <span class="tip">0=不限</span>
+        </el-form-item>
+        <el-form-item label="自動彈出貨品">
+          <el-select v-model="catEditDialog.commodityIds" multiple filterable clearable placeholder="留空=所有引用此類別的貨品" style="width: 100%;">
+            <el-option v-for="c in commodities" :key="c._id" :label="(c.plu ? c.plu + ' ' : '') + c.name" :value="c._id"></el-option>
+          </el-select>
         </el-form-item>
       </el-form>
       <div slot="footer">
@@ -230,6 +256,7 @@ export default {
       newCategoryCode: '',
       list: [],
       categories: [],
+      commodities: [],
       selectedId: null,
       selectedCategory: null,
       tableHeight: window.innerHeight - 260,
@@ -245,13 +272,19 @@ export default {
         _id: '',
         name: '',
         code: '',
-        mandatory: false
+        mandatory: false,
+        minSelect: 0,
+        maxSelect: 0,
+        commodityIds: []
       },
       catAddDialog: {
         show: false,
         name: '',
         code: '',
-        mandatory: false
+        mandatory: false,
+        minSelect: 0,
+        maxSelect: 0,
+        commodityIds: []
       }
     }
   },
@@ -287,6 +320,11 @@ export default {
         .then(res => { this.list = res.data || [] })
         .catch(err => console.log(err))
       this.loadCategories()
+    },
+    loadCommodities () {
+      this.$axios.get('/api/commodity/list')
+        .then(res => { this.commodities = res.data || [] })
+        .catch(err => console.log(err))
     },
     loadCategories () {
       this.$axios.get('/api/modcode/categories')
@@ -363,10 +401,10 @@ export default {
         .catch(err => this.$message.error((err.response && err.response.data) || '添加失敗'))
     },
     openCatEdit (c) {
-      this.catEditDialog = { show: true, _id: c._id, name: c.name, code: c.code || '', mandatory: !!c.mandatory }
+      this.catEditDialog = { show: true, _id: c._id, name: c.name, code: c.code || '', mandatory: !!c.mandatory, minSelect: c.minSelect || 0, maxSelect: c.maxSelect || 0, commodityIds: (c.commodityIds || []).slice() }
     },
     openAddCategory () {
-      this.catAddDialog = { show: true, name: '', code: '', mandatory: false }
+      this.catAddDialog = { show: true, name: '', code: '', mandatory: false, minSelect: 0, maxSelect: 0, commodityIds: [] }
     },
     saveCatAdd () {
       const name = this.catAddDialog.name.trim()
@@ -374,7 +412,7 @@ export default {
         this.$message({ type: 'warning', message: '類別名稱不能為空' })
         return
       }
-      this.$axios.post('/api/modcode/category/add', { name, code: this.catAddDialog.code.trim(), mandatory: this.catAddDialog.mandatory })
+      this.$axios.post('/api/modcode/category/add', { name, code: this.catAddDialog.code.trim(), mandatory: this.catAddDialog.mandatory, minSelect: this.catAddDialog.minSelect, maxSelect: this.catAddDialog.maxSelect, commodityIds: this.catAddDialog.commodityIds })
         .then(res => {
           this.$message({ type: 'success', message: res.data })
           this.catAddDialog.show = false
@@ -383,7 +421,7 @@ export default {
         .catch(err => this.$message.error((err.response && err.response.data) || '添加失敗'))
     },
     saveCatEdit () {
-      this.$axios.post('/api/modcode/category/update', { _id: this.catEditDialog._id, name: this.catEditDialog.name, code: this.catEditDialog.code, mandatory: this.catEditDialog.mandatory })
+      this.$axios.post('/api/modcode/category/update', { _id: this.catEditDialog._id, name: this.catEditDialog.name, code: this.catEditDialog.code, mandatory: this.catEditDialog.mandatory, minSelect: this.catEditDialog.minSelect, maxSelect: this.catEditDialog.maxSelect, commodityIds: this.catEditDialog.commodityIds })
         .then(res => {
           this.$message({ type: 'success', message: res.data })
           this.catEditDialog.show = false
@@ -557,6 +595,7 @@ export default {
   },
   created () {
     this.loadData()
+    this.loadCommodities()
     window.onresize = () => { this.tableHeight = window.innerHeight - 260 }
   }
 }

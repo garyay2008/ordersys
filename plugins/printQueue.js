@@ -16,15 +16,17 @@
 const { Queue, QueueEvents, Worker } = require('bullmq')
 const IORedis = require('ioredis')
 const config = require('../config/config')
-const PosSetting = require('../models/PosSetting')
+const Printer = require('../models/Printer')
 const socketio = require('./SocketIO')
 const {
   print,
+  computeDeadline,
   targetKey,
   hasTarget,
   buildFallbackPlan,
   buildFailoverBanner,
   emitFailover,
+  emitPrintBlocked,
   printWithFailover
 } = require('./Printer')
 
@@ -34,8 +36,10 @@ const workers = {}
 const queueEventsMap = {}
 // jobId -> Promise<{ok, printedTo}>：同步 wait 時對照主機失敗後跳飛的結果
 const failoverResults = new Map()
+// jobId -> deadline(ms)：主機 worker 開始列印時計算，供 failed handler 的跳飛延續同一截止時間
+const jobDeadlines = new Map()
 
-// PosSetting 快取：worker 執行時重取，避免每張單都把整份設定塞進 Job
+// Printer 設定快取：worker 執行時重取，避免每張單都把整份設定塞進 Job
 let settingCache = { doc: null, at: 0 }
 const SETTING_TTL = 30000
 
@@ -80,7 +84,7 @@ function getQueueEvents (queueName) {
 }
 
 function stationNameOf (printer) {
-  return (printer && printer.name) || (printer && printer.queue) || (printer && printer.ip) || '打印機'
+  return (printer && printer.name) || (printer && printer.ip) || '打印機'
 }
 
 // 列印失敗告警：透過 Socket.IO 推播給 POS/後台（列印監控頁監聽 printFailed）
@@ -97,22 +101,27 @@ function emitPrintFailed (printer, message) {
   } catch (e) {}
 }
 
-async function getPosSetting () {
+async function getPrinterSetting () {
   const now = Date.now()
   if (settingCache.doc && now - settingCache.at < SETTING_TTL) return settingCache.doc
-  const doc = await PosSetting.findOne().lean().exec()
+  const doc = await Printer.findOne().lean().exec()
   settingCache = { doc, at: now }
   return doc
 }
 
 // 跳飛（主機 attempts 耗盡後）：備援機(fallbackTo) → 廚房通用機，策略與 in-memory 一致
-async function runFailover (setting, printer, buf, meta) {
+// deadline：主機 worker 計算的截止時間戳，跳飛延續同一預算；逾時即停止
+async function runFailover (setting, printer, buf, meta, deadline) {
   const stationName = stationNameOf(printer)
   for (const cand of buildFallbackPlan(setting, printer)) {
+    if (deadline && Date.now() >= deadline) {
+      console.log(`[PrintQueue] ${stationName} 跳飛總時間已用盡，停止跳飛`)
+      break
+    }
     const target = cand.printer
     const label = cand.label
     try {
-      await print(target, Buffer.concat([buildFailoverBanner(target, stationName), buf]), undefined, meta)
+      await print(target, Buffer.concat([buildFailoverBanner(target, stationName), buf]), undefined, meta, deadline)
       console.log(`[PrintQueue] 已跳飛至「${label}」`)
       await emitFailover(stationName, label, meta)
       return { ok: true, printedTo: label }
@@ -131,8 +140,17 @@ function ensureWorker (queueName) {
     // 對主機直接列印（含 DLE EOT 預檢 + 內部重試）；失敗 throw 交由 BullMQ 指數退避重試
     const { printer, data, meta } = job.data
     const buf = Buffer.from(data, 'base64')
-    await print(printer, buf, undefined, meta)
-    return { ok: true, printedTo: stationNameOf(printer) }
+    // 於 worker 真正開始列印時才計算截止時間（不含佇列排隊等待），主機與後續跳飛共用同一預算
+    const deadline = await computeDeadline()
+    jobDeadlines.set(job.id, deadline)
+    try {
+      await print(printer, buf, undefined, meta, deadline)
+      return { ok: true, printedTo: stationNameOf(printer) }
+    } catch (e) {
+      // 預檢攔截（缺紙/離線/開蓋，未送出）：不視為失敗，回傳 blocked 供 completed handler 通知前台
+      if (e && e.blocked) return { ok: false, blocked: true, reason: e.message, station: stationNameOf(printer) }
+      throw e
+    }
   }, {
     connection: conn,
     concurrency: 1,
@@ -140,6 +158,12 @@ function ensureWorker (queueName) {
   })
 
   worker.on('completed', (job, result) => {
+    jobDeadlines.delete(job.id)
+    if (result && result.blocked) {
+      console.log(`[PrintQueue] ${result.station || ''} 預檢攔截（${result.reason}），等待補紙/補單`)
+      emitPrintBlocked(result.station, result.reason, job.data && job.data.meta)
+      return
+    }
     console.log(`[PrintQueue] 列印完成（${job.id}）：${(result && result.printedTo) || ''}`)
   })
 
@@ -147,8 +171,10 @@ function ensureWorker (queueName) {
     const { printer, data, meta } = job.data
     const buf = Buffer.from(data, 'base64')
     console.log(`[PrintQueue] 主機列印重試耗盡（${err.message}），啟動跳飛備援機`)
-    const setting = await getPosSetting()
-    const p = runFailover(setting, printer, buf, meta)
+    const deadline = jobDeadlines.get(job.id)
+    jobDeadlines.delete(job.id)
+    const setting = await getPrinterSetting()
+    const p = runFailover(setting, printer, buf, meta, deadline)
     failoverResults.set(job.id, p)
     p.finally(() => failoverResults.delete(job.id))
     const result = await p
@@ -168,10 +194,10 @@ async function enqueuePrint (setting, printer, data, meta, opts) {
   // 未設定 REDIS_URL：沿用既有 in-memory FIFO + 跳飛（同步語意不變）
   if (!enabled()) {
     const r = await printWithFailover(setting, printer, data, meta)
-    if (r && !r.ok) emitPrintFailed(printer, '列印失敗')
+    if (r && !r.ok && !r.blocked) emitPrintFailed(printer, '列印失敗')
     return r
   }
-  if (!printer || (!printer.queue && !printer.ip)) {
+  if (!printer || !printer.ip) {
     return { ok: false, printedTo: '' }
   }
   const queueName = queueNameFor(printer)
@@ -183,8 +209,7 @@ async function enqueuePrint (setting, printer, data, meta, opts) {
       data: data.toString('base64'),
       meta
     }, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
+      attempts: 1,
       removeOnComplete: { count: 100 },
       removeOnFail: { count: 500 }
     })
@@ -200,6 +225,7 @@ async function enqueuePrint (setting, printer, data, meta, opts) {
     const qe = getQueueEvents(queueName)
     try {
       const result = await job.waitUntilFinished(qe, opts.timeout || 60000)
+      if (result && result.blocked) return { ok: false, blocked: true, reason: result.reason }
       return { ok: true, printedTo: result.printedTo }
     } catch (e) {
       // 主機 attempts 耗盡：等待 failed handler 的跳飛結果（輪詢最多 ~1s 避免事件競速）
@@ -244,7 +270,7 @@ async function shutdown () {
   }
 }
 
-// 開機預先註冊所有已設定目標（queue/ip）的打印機佇列，
+// 開機預先註冊所有已設定目標（ip）的打印機佇列，
 // 讓 Bull Board 儀表板開機即顯示各台打印機狀態（而非首張單後才出現）。
 async function warmup () {
   if (!enabled()) return
@@ -263,10 +289,10 @@ async function warmup () {
     if (setting) {
       ;(setting.printers || []).forEach(push)
       if (setting.centralPrint) push(setting.centralPrint)
-      push({ queue: setting.queue, ip: setting.ip, port: setting.port, name: setting.name || '預設打印機' })
+      push({ ip: setting.ip, port: setting.port, name: setting.name || '預設打印機' })
       ;(setting.zones || []).forEach(z => {
-        push({ queue: z.serviceQueue, ip: z.serviceIp, port: z.servicePort, name: (z.name || '') + '-上菜' })
-        push({ queue: z.cashierQueue, ip: z.cashierIp, port: z.cashierPort, name: (z.name || '') + '-收銀' })
+        push({ ip: z.serviceIp, port: z.servicePort, name: (z.name || '') + '-上菜' })
+        push({ ip: z.cashierIp, port: z.cashierPort, name: (z.name || '') + '-收銀' })
       })
     }
     const terminals = await PosTerminal.find({}).lean().exec()

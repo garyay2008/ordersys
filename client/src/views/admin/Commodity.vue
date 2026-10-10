@@ -223,7 +223,8 @@ export default {
         plu: '',
         code: '',
         openPrice: false,
-        mandatory: false
+        mandatory: false,
+        nonBusiness: false
       },
       tableData: [],
       tableHeight: window.innerHeight - 194,
@@ -284,7 +285,8 @@ export default {
         plu: '',
         code: '',
         openPrice: false,
-        mandatory: false
+        mandatory: false,
+        nonBusiness: false
       }
     },
     editCommodity (row) {
@@ -306,6 +308,7 @@ export default {
       if (this.form.bundleGroupId === undefined) this.form.bundleGroupId = ''
       if (this.form.openPrice === undefined) this.form.openPrice = false
       if (this.form.mandatory === undefined) this.form.mandatory = false
+      if (this.form.nonBusiness === undefined) this.form.nonBusiness = false
     },
     copyCommodity (row) {
       const copy = JSON.parse(JSON.stringify(row))
@@ -335,6 +338,7 @@ export default {
       if (this.form.bundleGroupId === undefined) this.form.bundleGroupId = ''
       if (this.form.openPrice === undefined) this.form.openPrice = false
       if (this.form.mandatory === undefined) this.form.mandatory = false
+      if (this.form.nonBusiness === undefined) this.form.nonBusiness = false
     },
     delCommodity (row) {
       this.$confirm(`確認刪除貨品 “${row.name}” 嗎？`)

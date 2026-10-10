@@ -32,15 +32,12 @@ services:
       MONGO_URI: "mongodb://ordersys:306670c6ce55a4f30ed230fd8bb9e366b019@mongo:27017/orderSYS?authSource=admin"
       REDIS_URL: "redis://redis:6379"
       JWT_SECRET: "e9d2d19f8c27bc6cd089140797a4a50caf88fbdc5a90c7771da306e7d7df0906"
-      LICENSE_SECRET: "c740d501c9f84d4a5795a3603fdb38f3435ea1861a270997026ec0458be63d97"
       LICENSE_KEY: ""
+      # LICENSE_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----..."   # 可覆寫內建公鑰（通常不需設定）
       # MACHINE_ID: "customer-machine-id"   # Docker 部署建議設定，作為授權綁定的機器識別碼
       # LICENSE_ENFORCE: "1"                 # 設定為 1 才強制攔截未授權/過期的 /api 請求
       NODE_ENV: "production"
       TZ: "Asia/Hong_Kong"
-      CUPS_URL: "http://cups:631"
-      CUPS_USER: "print"
-      CUPS_PASSWORD: "print"
       QUEUE_UI_USER: "admin"
       QUEUE_UI_PASSWORD: "ordersys"
     volumes:
@@ -53,8 +50,6 @@ services:
       mongo:
         condition: service_healthy
       redis:
-        condition: service_started
-      cups:
         condition: service_started
     networks:
       - ordersys
@@ -76,27 +71,9 @@ services:
     networks:
       - ordersys
 
-  cups:
-    image: olbat/cupsd:latest
-    container_name: ordersys-cups
-    restart: unless-stopped
-    ports:
-      - "631:631"
-    environment:
-      TZ: "Asia/Hong_Kong"
-      CUPS_USER_ADMIN: "admin"
-      CUPS_USER_PASSWORD: "posprint"
-    volumes:
-      - cups_config:/etc/cups
-      - cups_spool:/var/spool/cups
-    networks:
-      - ordersys
-
 volumes:
   mongo_data:
   redis_data:
-  cups_config:
-  cups_spool:
 
 networks:
   ordersys:

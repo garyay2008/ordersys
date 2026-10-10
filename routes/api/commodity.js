@@ -4,7 +4,6 @@ const Commodity = require('../../models/Commodity')
 const Category = require('../../models/Category')
 const CategoryItem = require('../../models/CategoryItem')
 const Combo = require('../../models/Combo')
-const AddonGroup = require('../../models/AddonGroup')
 const ModCode = require('../../models/ModCode')
 const ModCodeCategory = require('../../models/ModCodeCategory')
 const PosSetting = require('../../models/PosSetting')
@@ -28,6 +27,35 @@ function operatorOf (req) {
   if (!u) return { staffNo: '', staffName: '' }
   if (u.no !== undefined) return { staffNo: u.no || '', staffName: u.name || '' }
   return { staffNo: u.account || u.username || '', staffName: u.name || '' }
+}
+
+// 找出所有引用指定貨品的地方（套餐分組品項/主食綁定、改碼類別自動彈出貨品），供刪除前擋刪提示
+async function findCommodityReferences (commodityId) {
+  const id = String(commodityId)
+  const refs = []
+  const combos = await Combo.find({}).lean().exec()
+  for (const c of combos) {
+    const comboLabel = c.name || c.code || String(c._id)
+    for (const g of (c.groups || [])) {
+      for (const it of (g.items || [])) {
+        if (it.commodityId && String(it.commodityId) === id) {
+          refs.push(`套餐「${comboLabel}」分組「${g.name}」品項「${it.name}」`)
+        }
+      }
+    }
+    for (const m of (c.mainDishes || [])) {
+      if (m.commodityId && String(m.commodityId) === id) {
+        refs.push(`套餐「${comboLabel}」主食綁定「${m.name}」`)
+      }
+    }
+  }
+  const modCats = await ModCodeCategory.find({}).lean().exec()
+  for (const mc of modCats) {
+    if ((mc.commodityIds || []).map(String).indexOf(id) >= 0) {
+      refs.push(`改碼類別「${mc.name}」`)
+    }
+  }
+  return refs
 }
 
 // 依營業日截止時間計算目前營業日期（YYYY-MM-DD）
@@ -112,35 +140,6 @@ function applyMenuJumpPrice (food, now, holidays, rules, mode) {
   }
 }
 
-// 將貨品引用的跟餐組（addonGroupIds）展開為 food.addonGroups，供 POS 貨品做撞餐時自動帶出
-function attachAddonGroups (food, addonGroupMap) {
-  if (!food || !addonGroupMap) return
-  const ids = Array.isArray(food.addonGroupIds) ? food.addonGroupIds : []
-  const groups = ids
-    .map(id => addonGroupMap[String(id)])
-    .filter(Boolean)
-    .map(g => ({
-      name: g.name || '',
-      min: g.min != null ? g.min : 1,
-      max: g.max != null ? g.max : 1,
-      allowRepeat: !!g.allowRepeat,
-      fixed: false,
-      station: g.station || '',
-      uniformUpgradeEnabled: !!g.uniformUpgradeEnabled,
-      uniformUpgrade: Number(g.uniformUpgrade) || 0,
-      groupPrice: Number(g.groupPrice) || 0,
-      items: (g.items || []).map(i => ({
-        commodityId: i.commodityId || '',
-        name: i.name || '',
-        price: i.price || 0,
-        upgradePrice: i.upgradePrice || 0,
-        modCategories: i.modCategories || []
-      }))
-    }))
-  if (groups.length) food.addonGroups = groups
-  else delete food.addonGroups
-}
-
 // $route POST api/commodity/add
 // @desc 添加商品信息
 // @access private
@@ -200,6 +199,10 @@ router.post(
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
+      const refs = await findCommodityReferences(req.body._id)
+      if (refs.length) {
+        return res.status(400).send('此貨品正被以下項目使用，無法刪除：' + refs.join('；'))
+      }
       await Commodity.findOneAndRemove({ _id: req.body._id })
       await CategoryItem.findOneAndRemove({ targetId: req.body._id, targetType: 'commodity' })
       emitMenuChanged()
@@ -426,31 +429,32 @@ router.get('/menu', async (req, res) => {
       }
     }
 
-    const [childCats, allCommodities, allCombos, allModCodes, allModCodeCategories] = await Promise.all([
+    const [childCats, allCommodities, rawCombos, allModCodes, allModCodeCategories] = await Promise.all([
       allCatIds.length ? Category.find({ _id: { $in: allCatIds }, active: { $ne: false } }).lean().exec() : [],
       allCommodityIds.length ? Commodity.find({ _id: { $in: allCommodityIds } }).lean().exec() : [],
       allComboIds.length ? Combo.find({ _id: { $in: allComboIds } }).lean().exec() : [],
       allModCodeIds.length ? ModCode.find({ _id: { $in: allModCodeIds } }).lean().exec() : [],
       allModCodeCategoryIds.length ? ModCodeCategory.find({ _id: { $in: allModCodeCategoryIds } }).lean().exec() : []
     ])
+    const allCombos = await Combo.stampItemsSoldOut(rawCombos)
 
     const childCatMap = {}
     childCats.forEach(c => { childCatMap[String(c._id)] = c })
     const commodityMap = {}
     allCommodities.forEach(c => { commodityMap[String(c._id)] = c })
     const comboMap = {}
-    allCombos.forEach(c => { comboMap[String(c._id)] = c })
+    allCombos.forEach(c => {
+      // QR 端：顯示名改用 qrName，原 name 保留到 name2 供廚房單印 POS 名
+      if (channel === 'qr' && c.qrName) {
+        c.name2 = c.name
+        c.name = c.qrName
+      }
+      comboMap[String(c._id)] = c
+    })
     const modCodeMap = {}
     allModCodes.forEach(c => { modCodeMap[String(c._id)] = c })
     const modCodeCategoryMap = {}
     allModCodeCategories.forEach(c => { modCodeCategoryMap[String(c._id)] = c })
-
-    // 收集貨品引用的跟餐組，展開為 food.addonGroups（貨品做撞餐）
-    const addonGroupIds = []
-    allCommodities.forEach(c => { (c.addonGroupIds || []).forEach(id => addonGroupIds.push(id)) })
-    const addonGroups = addonGroupIds.length ? await AddonGroup.find({ _id: { $in: addonGroupIds } }).lean().exec() : []
-    const addonGroupMap = {}
-    addonGroups.forEach(a => { addonGroupMap[String(a._id)] = a })
 
     const childCatByParent = {}
     for (const cid of categoryIds) {
@@ -469,7 +473,7 @@ router.get('/menu', async (req, res) => {
     const legacyMenu = []
     for (const category of filtered) {
       const existingEntry = (childCatByParent[String(category._id)] || [])
-      const menuEntry = { name: category.cName, type: category.no, code: category.code || '', foods: [], slots: category.slots || [], _id: category._id, _subCategories: existingEntry, parentId: category.parentId ? String(category.parentId) : null, rootOrder: category.rootOrder == null ? null : category.rootOrder, colorFrom: category.colorFrom || '', colorTo: category.colorTo || '', textColor: category.textColor || '#ffffff' }
+      const menuEntry = { name: category.cName, describe: category.describe || '', type: category.no, code: category.code || '', foods: [], slots: category.slots || [], _id: category._id, _subCategories: existingEntry, parentId: category.parentId ? String(category.parentId) : null, rootOrder: category.rootOrder == null ? null : category.rootOrder, colorFrom: category.colorFrom || '', colorTo: category.colorTo || '', textColor: category.textColor || '#ffffff' }
       legacyMenu.push(menuEntry)
     }
 
@@ -502,13 +506,12 @@ router.get('/menu', async (req, res) => {
             food.categoryCode = category.code || ''
             food._itemType = 'commodity'
             applyMenuJumpPrice(food, now, publicHolidays, jumpPriceRules, mode)
-            attachAddonGroups(food, addonGroupMap)
             category.foods.push(food)
             category.items.push(food)
           }
         } else if (item.targetType === 'combo') {
           const combo = comboMap[String(item.targetId)]
-          if (combo && !combo.soldOut && combo[showField] !== false) {
+          if (combo && combo[showField] !== false) {
             const comboFood = {
               _id: combo._id,
               name: combo.name,
@@ -518,7 +521,8 @@ router.get('/menu', async (req, res) => {
               price: combo.price,
               img: combo.img || '',
               isDiscount: false,
-              soldOut: false,
+              soldOut: !!combo.soldOut,
+              mainGroupId: combo.mainGroupId || '',
               _isCombo: true,
               _comboData: combo,
               _itemType: 'combo'
@@ -538,7 +542,7 @@ router.get('/menu', async (req, res) => {
               price: mod.price || 0,
               img: '',
               isDiscount: false,
-              soldOut: false,
+              soldOut: !!mod.soldOut,
               station: mod.station || '',
               plu: mod.code || '',
               modCategories: [],
@@ -584,7 +588,6 @@ router.get('/menu', async (req, res) => {
             food.categoryCode = category.code || ''
             food._itemType = 'commodity'
             applyMenuJumpPrice(food, now, publicHolidays, jumpPriceRules, mode)
-            attachAddonGroups(food, addonGroupMap)
             category.foods.push(food)
             category.items.push(food)
           }
@@ -600,6 +603,7 @@ router.get('/menu', async (req, res) => {
       result.push({
         _id: String(group._id),
         name: group.name,
+        describe: group.describe || '',
         type: group.type,
         code: group.code || '',
         foods: group.foods,

@@ -46,8 +46,13 @@ _axios.interceptors.response.use(
     if (status === 401) {
       Message.error('操作超時，請重新登錄！')
       localStorage.removeItem('orderTk')
-      // POS 頁面（/pos）不跳轉到管理後台登入
-      if (router.currentRoute.path.indexOf('/pos') !== 0) {
+      // 客人／自助／排隊等公開頁面不跳轉到管理後台登入
+      const p = router.currentRoute.path
+      const isPublicPage = p.indexOf('/pos') === 0 || p.indexOf('/mpos') === 0 ||
+        p.indexOf('/index/') === 0 || p.indexOf('/emenu/') === 0 ||
+        p.indexOf('/kiosk') === 0 || p.indexOf('/paykiosk') === 0 ||
+        p.indexOf('/queue') === 0
+      if (!isPublicPage) {
         router.push('/login')
       }
     } else {

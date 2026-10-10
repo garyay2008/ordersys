@@ -19,6 +19,8 @@ const BusinessDaySchema = new Schema({
   countedCash: { type: Number, default: 0, set: roundMoney },
   // 日結時備註
   closeRemark: { type: String, default: '' },
+  // 日結序號（Close ID）：每次日結自動遞增，報表「Close ID」欄位使用
+  closeSeq: { type: Number, default: 0 },
   // 代支（支出）紀錄
   paidOuts: [{
     amount: { type: Number, default: 0, set: roundMoney },
@@ -27,6 +29,8 @@ const BusinessDaySchema = new Schema({
     staffName: { type: String, default: '' },
     time: { type: Date, default: Date.now }
   }],
+  // 外賣叫號每日流水號（日結重置）
+  takeawaySeq: { type: Number, default: 0 },
   // 代收（收入）紀錄
   receiveds: [{
     amount: { type: Number, default: 0, set: roundMoney },
@@ -54,6 +58,15 @@ const BusinessDaySchema = new Schema({
     paidOutTotal: { type: Number, default: 0, set: roundMoney },
     receivedTotal: { type: Number, default: 0, set: roundMoney }
   },
+  // 日結歷史：每次重複結算時留存前一次結算結果，供回溯
+  closeHistory: [{
+    closedAt: { type: Date, default: Date.now },
+    startingCash: { type: Number, default: 0, set: roundMoney },
+    countedCash: { type: Number, default: 0, set: roundMoney },
+    closeRemark: { type: String, default: '' },
+    closedBy: { type: String, default: '' },
+    snapshot: { type: Schema.Types.Mixed, default: {} }
+  }],
   // 開班操作員
   openedBy: { type: String, default: '' },
   // 日結操作員

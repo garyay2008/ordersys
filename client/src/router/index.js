@@ -127,20 +127,20 @@ const routes = [
         component: () => import('../views/admin/Bundle')
       },
       {
-        path: '/admin/addongroup',
-        name: 'AddonGroup',
-        meta: {
-          title: '跟餐組管理'
-        },
-        component: () => import('../views/admin/AddonGroup')
-      },
-      {
         path: '/admin/bundlegroup',
         name: 'BundleGroup',
         meta: {
           title: '跟餐組別管理'
         },
         component: () => import('../views/admin/BundleGroup')
+      },
+      {
+        path: '/admin/maingroup',
+        name: 'MainGroup',
+        meta: {
+          title: '主菜組別管理'
+        },
+        component: () => import('../views/admin/MainGroup')
       },
       {
         path: '/admin/matchingrule',
@@ -339,6 +339,14 @@ const routes = [
     component: () => import('../views/pos/Index')
   },
   {
+    path: '/mpos',
+    name: 'Mpos',
+    meta: {
+      title: '侍應流動點餐'
+    },
+    component: () => import('../views/mpos/Index')
+  },
+  {
     path: '/kiosk',
     name: 'Kiosk',
     meta: {
@@ -396,7 +404,7 @@ function setTitle (to) {
 router.beforeEach((to, from, next) => {
   setTitle(to)
   const isLogin = !!localStorage.getItem('orderTk')
-  if (to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue')) {
+  if (to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/mpos') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue')) {
     next()
   } else {
     isLogin ? next() : next('/login')

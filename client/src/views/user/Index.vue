@@ -91,6 +91,14 @@ export default {
     } else {
       this.checking = false
     }
+
+    // 掃碼進入：若該桌已有未結品項，跳過「開始點餐」直接進入查看單據版面
+    this.$axios.get('/api/order/current', { params: { deskNo: this.id } })
+      .then(res => {
+        const items = (res.data && res.data.order) ? res.data.order.filter(item => item.voidStatus !== 1) : []
+        if (items.length) this.started = true
+      })
+      .catch(() => {})
   },
   beforeDestroy () {
     this.applyFontScale(1)

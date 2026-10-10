@@ -1,3 +1,5 @@
+// 攔截 console 輸出到記憶體環形緩衝（供後台「系統日誌」頁檢視，需最先載入）
+require('./utils/logBuffer')
 const express = require('express')
 const app = express()
 const mongoose = require('mongoose')
@@ -53,8 +55,12 @@ const isConnected = mongoose
     const Amount = require('./models/Amount')
     const defaults = [
       { key: 'payMethod', value: '現金' },
-      { key: 'payMethod', value: '信用卡' },
-      { key: 'payMethod', value: '行動支付' },
+      { key: 'payMethod', value: 'Visa' },
+      { key: 'payMethod', value: 'Master' },
+      { key: 'payMethod', value: '銀聯' },
+      { key: 'payMethod', value: '中銀' },
+      { key: 'payMethod', value: '支付寶' },
+      { key: 'payMethod', value: '微信支付' },
       { key: 'payMethod', value: '八達通' },
       { key: 'payType', value: '堂食' },
       { key: 'payType', value: '外賣自取' }
@@ -64,6 +70,10 @@ const isConnected = mongoose
     )).catch(err => console.log('[Seed] Amounts 預設值寫入失敗：' + err.message))
     // 開機預先註冊打印機佇列（Bull Board 儀表板開機即顯示各台狀態）
     printQueue.warmup()
+    // 預先載入列印相關 PosSetting 快取（外賣枱枱號範圍等同步票據欄位）
+    require('./models/PosSetting').findOne().lean().exec()
+      .then(ps => { if (ps) require('./plugins/Printer').setPosSettingCache(ps) })
+      .catch(() => {})
   })
 
 // 設置靜態資源服務器
@@ -104,8 +114,8 @@ app.use('/api/statistic', require('./routes/api/statisticData'))
 app.use('/api/printer', require('./routes/api/printer'))
 app.use('/api/print', require('./routes/api/print'))
 app.use('/api/combo', require('./routes/api/combo'))
-app.use('/api/addongroup', require('./routes/api/addongroup'))
 app.use('/api/bundlegroup', require('./routes/api/bundlegroup'))
+app.use('/api/maingroup', require('./routes/api/maingroup'))
 app.use('/api/matchingrule', require('./routes/api/matchingrule'))
 app.use('/api/modcode', require('./routes/api/modcode'))
 app.use('/api/table', require('./routes/api/table'))

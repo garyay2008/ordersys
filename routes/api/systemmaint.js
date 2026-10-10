@@ -141,6 +141,25 @@ router.post('/clearbusinessdata', passport.authenticate('jwt', { session: false 
   }
 })
 
+// $route GET api/systemmaint/logs
+// @desc 系統日誌（記憶體環形緩衝，等同 docker logs）
+// @access private
+router.get('/logs', passport.authenticate('jwt', { session: false }), requireLevel(4), (req, res) => {
+  const logBuffer = require('../../utils/logBuffer')
+  const limit = parseInt(req.query.limit) || 500
+  const level = req.query.level || ''
+  res.json({ logs: logBuffer.getLogs(limit, level), max: logBuffer.MAX_ENTRIES })
+})
+
+// $route POST api/systemmaint/logs/clear
+// @desc 清空系統日誌緩衝
+// @access private
+router.post('/logs/clear', passport.authenticate('jwt', { session: false }), requireLevel(4), (req, res) => {
+  const logBuffer = require('../../utils/logBuffer')
+  logBuffer.clear()
+  res.json({ msg: '系統日誌已清空' })
+})
+
 // $route POST api/systemmaint/clearcombos
 // @desc 一鍵清空套餐（含套餐與分類的關聯）
 // @access private

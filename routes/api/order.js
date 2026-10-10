@@ -51,8 +51,16 @@ function deskNoQuery (deskNo) {
   return { deskNo: s }
 }
 
+// 依 zone 決定訂單編號前綴（堂食 / 外賣枱 / 外賣）
+function zonePrefixOf (setting, zone) {
+  if (!setting) return '10'
+  if (zone === '外賣') return setting.takeawayPrefix || '88'
+  if (zone === '外賣枱') return setting.takeawayTablePrefix || '99'
+  return setting.dineInPrefix || '10'
+}
+
 // 產生收銀機訂單編號（帶前綴 + 遞增流水號）；無收銀機時回退時間戳
-async function genTerminalOrderNo (terminalCode, isDineIn) {
+async function genTerminalOrderNo (terminalCode, zone) {
   const PosTerminal = require('../../models/PosTerminal')
   if (terminalCode) {
     try {
@@ -66,7 +74,7 @@ async function genTerminalOrderNo (terminalCode, isDineIn) {
         const seq = String(terminal.orderSeq).padStart(4, '0')
         let zonePrefix = ''
         const setting = await PosSetting.findOne().lean().exec()
-        if (setting) zonePrefix = isDineIn ? (setting.dineInPrefix || '10') : (setting.takeawayPrefix || '99')
+        if (setting) zonePrefix = zonePrefixOf(setting, zone || '堂食')
         const parts = []
         if (zonePrefix) parts.push(zonePrefix)
         if (machinePrefix) parts.push(machinePrefix)
@@ -100,6 +108,29 @@ async function getOrCreateBusinessDayId () {
   } catch (e) {
     console.log('[Order] 綁定營業日失敗：' + e.message)
     return null
+  }
+}
+
+// 外賣叫號：每日遞增（依營業日 cutoff 重置），格式 001（失敗時退回時分秒）
+async function getNextTakeawayNo () {
+  try {
+    let cutoff = '03:00'
+    const setting = await PosSetting.findOne().lean().exec()
+    if (setting && setting.businessDayCutoff) cutoff = setting.businessDayCutoff
+    const today = moment()
+    const [h, m] = cutoff.split(':').map(Number)
+    const cutoffMinutes = (h || 0) * 60 + (m || 0)
+    const currentMinutes = today.hour() * 60 + today.minute()
+    const bizDate = currentMinutes < cutoffMinutes ? today.clone().subtract(1, 'day').format('YYYY-MM-DD') : today.format('YYYY-MM-DD')
+    const bd = await BusinessDay.findOneAndUpdate(
+      { date: bizDate },
+      { $inc: { takeawaySeq: 1 } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean().exec()
+    return String(bd.takeawaySeq || 1).padStart(3, '0')
+  } catch (e) {
+    console.log('[Order] 產生外賣叫號失敗：' + e.message)
+    return moment(Date.now()).format('HHmmss')
   }
 }
 
@@ -154,18 +185,19 @@ async function autoPrint (order, newItems, isAdd, force, kitchenOnly) {
     const printItems = allItems.filter(it => it.dishStatus !== 'called')
     if (!printItems.length) return
     const printOrder = Object.assign({}, order.toObject ? order.toObject() : order, { order: printItems })
-    if (order.zone === '外賣') {
-      // 外賣：按檔口長短單路由（只處理 takeaway* 檔口）；未設定則退回舊「外賣單」
+    if (order.zone === '外賣' || order.zone === '外賣枱') {
+      // 外賣/外賣枱：按檔口長短單路由（只處理 takeaway* 檔口）；未設定則退回舊「外賣單／外賣枱單」
+      const zoneLabel = order.zone === '外賣枱' ? '外賣枱' : '外賣'
       const tickets = escpos.buildKitchenByStation(setting, printOrder)
       for (const t of tickets) {
         await printQueue.enqueuePrint(setting, t.printer, t.data, printOrder)
         console.log('[Printer] 已打印[' + t.station + '档] 订单号：' + order.orderNo)
       }
       if (!tickets.length) {
-        const takeaway = escpos.resolvePrinter(setting, '外賣')
-        if (takeaway.ip) {
-          await printQueue.enqueuePrint(setting, takeaway, escpos.buildExpeditorOrder(setting, printOrder, '【外賣單】'), printOrder)
-          console.log('[Printer] 已打印[外賣單] 订单号：' + order.orderNo)
+        const zonePrinter = escpos.resolvePrinter(setting, zoneLabel)
+        if (zonePrinter.ip) {
+          await printQueue.enqueuePrint(setting, zonePrinter, escpos.buildExpeditorOrder(setting, printOrder, '【' + zoneLabel + '單】'), printOrder)
+          console.log('[Printer] 已打印[' + zoneLabel + '單] 订单号：' + order.orderNo)
         }
       }
       return
@@ -285,6 +317,40 @@ async function applyJumpPrice (items, date, holidays, timing, rules, mode) {
   return delta
 }
 
+// $route POST /api/order/previewNo
+// @desc 產生下一個訂單編號（POS 開新單時預覽單號，僅查詢不遞增流水號）
+// @access public
+router.post('/previewNo', async (req, res) => {
+  try {
+    const PosTerminal = require('../../models/PosTerminal')
+    const terminalCode = req.body.terminalCode || ''
+    const zone = req.body.zone || '外賣'
+    let orderNo = ''
+    if (terminalCode) {
+      const terminal = await PosTerminal.findOne({ code: terminalCode }).lean().exec()
+      if (terminal) {
+        const machinePrefix = terminal.orderPrefix || ''
+        const seq = String((terminal.orderSeq || 0) + 1).padStart(4, '0')
+        let zonePrefix = ''
+        try {
+          const setting = await PosSetting.findOne().lean().exec()
+          if (setting) zonePrefix = zonePrefixOf(setting, zone)
+        } catch (e) {}
+        const parts = []
+        if (zonePrefix) parts.push(zonePrefix)
+        if (machinePrefix) parts.push(machinePrefix)
+        parts.push(seq)
+        orderNo = parts.join('')
+      }
+    }
+    if (!orderNo) orderNo = moment(Date.now()).format('YYYYMMDDHHmmss') + Math.floor(Math.random() * 8999 + 1000)
+    res.json({ orderNo })
+  } catch (e) {
+    console.log('[Order] 產生預覽單號失敗：' + e.message)
+    res.status(400).send('產生單號失敗！')
+  }
+})
+
 router.post('/submit', async (req, res) => {
   let data = req.body
   const PosTerminal = require('../../models/PosTerminal')
@@ -313,7 +379,7 @@ router.post('/submit', async (req, res) => {
         try {
           const setting = await PosSetting.findOne().lean().exec()
           if (setting) {
-            zonePrefix = isDineIn ? (setting.dineInPrefix || '10') : (setting.takeawayPrefix || '99')
+            zonePrefix = zonePrefixOf(setting, data.zone || (isDineIn ? '堂食' : '外賣'))
           }
         } catch (e) {}
         const parts = []
@@ -321,6 +387,7 @@ router.post('/submit', async (req, res) => {
         if (machinePrefix) parts.push(machinePrefix)
         parts.push(seq)
         data.orderNo = parts.join('')
+        data.orderSeq = seq
       } else {
         data.orderNo = moment(Date.now()).format('YYYYMMDDHHmmss') + Math.floor(Math.random() * 8999 + 1000)
       }
@@ -334,6 +401,11 @@ router.post('/submit', async (req, res) => {
 
   // 自動綁定當前營業日（每日開始由 cutoff 決定，首筆訂單自動建立）
   data.businessDayId = await getOrCreateBusinessDayId()
+
+  // 外賣叫號：非堂食（外賣/外賣枱，deskNo=0）產生每日遞增叫號
+  if (!isDineIn) {
+    data.takeawayNo = await getNextTakeawayNo()
+  }
 
   // 為每個商品項補充 categoryName 和 categoryNo（冗餘寫入，報表聚合用）
   if (Array.isArray(data.order)) {
@@ -387,7 +459,23 @@ router.post('/submit', async (req, res) => {
           if (com.stations && com.stations.length) item.stations = com.stations
         }
         if (item.contents && Array.isArray(item.contents)) {
-          item.contents.forEach(enrichDept)
+          let lastStation = ''
+          let lastStations = null
+          item.contents.forEach(sub => {
+            if (!sub) return
+            enrichDept(sub)
+            const isModLine = typeof sub.name === 'string' && sub.name.indexOf('　· ') === 0
+            if (isModLine) {
+              // QR 改碼行（　· 開頭）無自身檔口時，繼承前一主品項的檔口
+              if (!sub.station && !(sub.stations && sub.stations.length)) {
+                if (lastStation) sub.station = lastStation
+                if (lastStations && lastStations.length) sub.stations = lastStations
+              }
+            } else {
+              if (sub.station) lastStation = sub.station
+              if (sub.stations && sub.stations.length) lastStations = sub.stations
+            }
+          })
         }
       }
       data.order.forEach(enrichDept)
@@ -421,7 +509,7 @@ router.post('/submit', async (req, res) => {
     }
     // 跳價錢設定：入單計=當下入單時間；開枱計=該枱首次開枱時間
     const openDate = (existing && existing.date) ? existing.date : new Date()
-    const jumpMode = isDineIn ? '堂食' : '外賣'
+    const jumpMode = data.zone || (isDineIn ? '堂食' : '外賣')
     const orderJumpDelta = await applyJumpPrice(data.order, new Date(), holidays, 'order', enabled ? rules : [], jumpMode)
     const openJumpDelta = await applyJumpPrice(data.order, openDate, holidays, 'open', enabled ? rules : [], jumpMode)
     if (orderJumpDelta !== 0 || openJumpDelta !== 0) {
@@ -575,10 +663,11 @@ router.post(
 
       // 埋單計跳價：結帳時依當下時間重新套用規格價
       const { enabled, holidays, rules } = await getJumpContext()
-      const jumpMode = order.deskNo ? '堂食' : '外賣'
+      const jumpMode = order.zone || (order.deskNo && String(order.deskNo) !== '0' ? '堂食' : '外賣')
       const jumpDelta = await applyJumpPrice(order.order, new Date(), holidays, 'checkout', enabled ? rules : [], jumpMode)
 
       order.state = 1
+      order.settledAt = new Date()
       if (req.body.totalPrice !== undefined) order.totalPrice = req.body.totalPrice
       if (req.body.serviceCharge !== undefined) order.serviceCharge = req.body.serviceCharge
       if (req.body.discount !== undefined) order.discount = req.body.discount
@@ -587,6 +676,7 @@ router.post(
       if (req.body.waiter !== undefined && !order.waiter) order.waiter = req.body.waiter
       if (req.body.cashier !== undefined) order.cashier = req.body.cashier
       if (req.body.payMethod !== undefined) order.payMethod = req.body.payMethod
+      if (req.body.tip !== undefined) order.tip = req.body.tip
       if (req.body.terminalCode !== undefined) order.terminalCode = req.body.terminalCode
 
       if (jumpDelta !== 0) {
@@ -885,10 +975,16 @@ router.post(
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
-      const deskNo = String(req.body.deskNo)
-      if (!deskNo) return res.status(400).send('請指定枱號！')
-      const order = await Order.findOne(Object.assign({ state: 0 }, deskNoQuery(deskNo))).exec()
-      if (!order) return res.status(400).send('該枱沒有未結訂單！')
+      // 重印最近一筆結帳（已結）單據；可選傳 _id / orderNo 指定特定訂單
+      let order = null
+      if (req.body._id) {
+        order = await Order.findById(req.body._id).exec()
+      } else if (req.body.orderNo) {
+        order = await Order.findOne({ orderNo: String(req.body.orderNo) }).exec()
+      } else {
+        order = await Order.findOne({ state: 1 }).sort({ date: -1 }).exec()
+      }
+      if (!order) return res.status(400).send('沒有可重印的結帳單據！')
       const printerSetting = await Printer.findOne().exec()
       if (!printerSetting) return res.status(400).send('請先設置打印機！')
       const reprintOrder = Object.assign({}, order.toObject(), { _printLabel: '【重印】' })
@@ -900,7 +996,7 @@ router.post(
       } catch (printErr) {
         console.log('[Printer] 重印收據失敗：' + printErr.message)
       }
-      res.send('重印成功！')
+      res.send('重印成功！' + (order.orderNo ? '（單號：' + order.orderNo + '）' : ''))
     } catch (err) {
       console.log(err)
       res.status(400).send('重印失敗，請重試！')
@@ -914,21 +1010,33 @@ router.post(
 router.post(
   '/cancel',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    let _id = req.body._id
-    Order.findOneAndRemove({ _id }, { new: true })
-      .then(result => {
-        if (io) io.emit('tableUpdate')
-        if (result) {
-          logAction(req, 'cancel', '取消訂單', {
-            deskNo: result.deskNo || '',
-            orderNo: result.orderNo || '',
-            amount: result.totalPrice || 0
-          })
-        }
-        res.send('订单已取消！')
+  async (req, res) => {
+    try {
+      const _id = req.body._id
+      const order = await Order.findById(_id).exec()
+      if (!order) {
+        res.status(400).send('訂單不存在！')
+        return
+      }
+      const op = operatorOf(req)
+      // 不刪單：標記整單取消（voidStatus=1、state=2 取消終態），供取消報表追溯
+      order.voidStatus = 1
+      order.voidReason = req.body.reason || ''
+      order.voidDate = new Date()
+      order.voidBy = op.staffName || op.staffNo || ''
+      order.state = 2
+      await order.save()
+      if (io) io.emit('tableUpdate')
+      logAction(req, 'cancel', '取消訂單', {
+        deskNo: order.deskNo || '',
+        orderNo: order.orderNo || '',
+        amount: order.totalPrice || 0
       })
-      .catch(err => res.status(400).send('订单操作失败，请重试！'))
+      res.send('订单已取消！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('订单操作失败，请重试！')
+    }
   }
 )
 
@@ -962,8 +1070,7 @@ router.post(
         const zone = (setting.zones || []).find(z => (z.desks || []).map(String).indexOf(order.deskNo) >= 0)
         let printer = terminal ? escpos.resolveTerminalPrinter(setting, terminal.receipt) : null
         if (!printer && zone) {
-          if (zone.cashierQueue) printer = Object.assign({}, escpos.resolveTicketPrinter(setting, 'receipt'), { queue: zone.cashierQueue })
-          else if (zone.cashierIp) printer = Object.assign({}, escpos.resolveTicketPrinter(setting, 'receipt'), { ip: zone.cashierIp, port: zone.cashierPort || 9100 })
+          if (zone.cashierIp) printer = Object.assign({}, escpos.resolveTicketPrinter(setting, 'receipt'), { ip: zone.cashierIp, port: zone.cashierPort || 9100 })
         }
         if (!printer) printer = escpos.resolveTicketPrinter(setting, 'receipt')
         await printQueue.enqueuePrint(setting, printer, await escpos.buildReceipt(printer, order, { invoiceNo: req.body.invoiceNo, payMethod: req.body.payMethod }), order)
@@ -993,6 +1100,15 @@ router.post(
         if (req.body.central) printer = escpos.resolveTerminalPrinter(setting, setting.centralPrint)
         if (!printer && terminal) printer = escpos.resolveTerminalPrinter(setting, terminal.print)
         if (!printer) printer = escpos.resolveTicketPrinter(setting, 'print')
+        // 印單小票印製次數：依堂食/外賣後台設定套用
+        if (printer) {
+          try {
+            const posSetting = await PosSetting.findOne().lean().exec()
+            const isDineIn = order.zone !== '外賣' && order.zone !== '外賣枱'
+            const copies = Math.max(1, Number(isDineIn ? (posSetting && posSetting.dineInPrintCopies) : (posSetting && posSetting.takeawayPrintCopies)) || 1)
+            printer = Object.assign({}, printer, { copies })
+          } catch (e) {}
+        }
         await printQueue.enqueuePrint(setting, printer, await escpos.buildPrintOrder(printer, order), order)
       } else if (req.body.type === 'qrcode') {
         // 二维码小票 → 指定目标位置打印机
@@ -1034,6 +1150,7 @@ router.post(
 
 // 計算單一品項小計（與點餐端 calcUnit 一致）
 function itemSubtotal (item) {
+  if (item && item.voidStatus === 1) return 0
   const base = item.free ? 0 : (item.customPrice > 0 ? item.customPrice : (item.price || 0))
   const unit = base * (item.discount || 1)
   return Math.round(unit * (item.count || 1) * 100) / 100
@@ -1145,11 +1262,13 @@ async function markUnpairedMains (items) {
   const rules = await MatchingRule.find({ enabled: { $ne: false } }).lean().exec()
   const candidates = (items || []).filter(it => {
     if (!it || it.bundleMain || it.bundlePrice || it.comboId) return false
-    const cat = String(it.categoryId || '')
     return rules.some(r => {
-      const trig = (r.triggerCategoryIds || []).map(String)
-      if (!trig.length) return true
-      return trig.includes(cat)
+      const trigGroups = (r.triggerGroupIds || []).map(String)
+      if (trigGroups.length) {
+        const gid = String(it.mainGroupId || '')
+        return !!gid && trigGroups.includes(gid)
+      }
+      return true
     })
   })
   for (const it of candidates) {
@@ -1507,11 +1626,22 @@ router.post(
       const beforeCount = Number(items[idx].count) || 1
       const qty = Math.floor(Number(req.body.qty) || 0)
       const canceledQty = qty > 0 ? qty : beforeCount
+      const op = operatorOf(req)
+      const reason = req.body.reason || ''
+      const voidFields = {
+        voidStatus: 1,
+        voidQty: canceledQty,
+        voidReason: reason,
+        voidDate: new Date(),
+        voidBy: op.staffName || op.staffNo || ''
+      }
       if (qty > 0 && qty < beforeCount) {
-        // 部分退菜：僅扣減數量
+        // 部分退菜：原品項扣減數量，另追加一筆退菜記錄
         items[idx].count = beforeCount - qty
+        items.push(Object.assign({}, items[idx], voidFields, { count: canceledQty }))
       } else {
-        items.splice(idx, 1)
+        // 全退：原位標記退菜（不刪除，供取消報表追溯）
+        Object.assign(items[idx], voidFields)
       }
       order.order = items
       order.markModified('order')
@@ -1522,7 +1652,7 @@ router.post(
         orderNo: order.orderNo || '',
         itemName,
         canceledQty,
-        reason: req.body.reason || ''
+        reason
       })
       if (io) io.emit('tableUpdate')
       res.send('退菜成功！')
@@ -1692,6 +1822,8 @@ router.post(
       const op = operatorOf(req)
       order.deskNo = targetDeskNo
       order.state = 0
+      order.paymentCancelAt = order.settledAt || null
+      order.settledAt = null
       order.relisted = true
       order.source = 'pos'
       order.refundReason = req.body.reason || ''
@@ -1765,7 +1897,7 @@ router.post(
       // 找到（或建立）該枱未結訂單，把 token 綁上去
       let order = await Order.findOne(Object.assign({ state: 0 }, deskNoQuery(deskNo))).exec()
       if (!order) {
-        const orderNo = await genTerminalOrderNo(req.body.terminalCode || '', true)
+        const orderNo = await genTerminalOrderNo(req.body.terminalCode || '', '堂食')
         const businessDayId = await getOrCreateBusinessDayId()
         order = await Order.create({
           orderNo,
@@ -1895,7 +2027,7 @@ router.post(
           await existing.save()
         }
       } else {
-        const orderNo = await genTerminalOrderNo(terminalCode, true)
+        const orderNo = await genTerminalOrderNo(terminalCode, '堂食')
         const businessDayId = await getOrCreateBusinessDayId()
         await Order.create({
           orderNo,

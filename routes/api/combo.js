@@ -2,7 +2,6 @@ const express = require('express')
 const router = express.Router()
 const passport = require('passport')
 const Combo = require('../../models/Combo')
-const AddonGroup = require('../../models/AddonGroup')
 const socketio = require('../../plugins/SocketIO')
 
 function emitMenuChanged () {
@@ -105,47 +104,44 @@ router.post(
   }
 )
 
-// 將可重用跟餐組（AddonGroup）轉為點餐端所需的分組結構（唯讀）
-function materializeAddonGroup (g) {
-  if (!g) return null
-  return {
-    name: g.name || '',
-    min: g.min != null ? g.min : 1,
-    max: g.max != null ? g.max : 1,
-    allowRepeat: !!g.allowRepeat,
-    fixed: false,
-    station: g.station || '',
-    uniformUpgradeEnabled: !!g.uniformUpgradeEnabled,
-    uniformUpgrade: Number(g.uniformUpgrade) || 0,
-    groupPrice: Number(g.groupPrice) || 0,
-    items: (g.items || []).map(i => ({
-      commodityId: i.commodityId || '',
-      name: i.name || '',
-      price: i.price || 0,
-      upgradePrice: i.upgradePrice || 0,
-      modCategories: i.modCategories || []
-    }))
-  }
-}
-
 // 整組同價：uniformUpgradeEnabled 時，將分組內所有品項的加價統一為 uniformUpgrade
-// 並將 addonGroupIds 引用的跟餐組展開為額外分組
 // 僅在點餐端呈現（唯讀），不寫回資料庫；後台 /api/combo/all 仍回傳原始分組結構供編輯
-function materializeCombo (combo, addonGroupMap) {
+function materializeCombo (combo) {
   if (!combo) return combo
-  let groups = Array.isArray(combo.groups) ? combo.groups : []
-  const addonIds = Array.isArray(combo.addonGroupIds) ? combo.addonGroupIds : []
-  addonIds.forEach(id => {
-    const g = addonGroupMap && addonGroupMap[String(id)]
-    if (g) groups.push(materializeAddonGroup(g))
-  })
-  groups = groups.map(g => {
+  const groups = (Array.isArray(combo.groups) ? combo.groups : []).map(g => {
     if (!g || !g.uniformUpgradeEnabled) return g
     const up = Number(g.uniformUpgrade) || 0
     return Object.assign({}, g, { items: (g.items || []).map(i => Object.assign({}, i, { upgradePrice: up })) })
   })
   return Object.assign({}, combo, { groups })
 }
+
+// $route POST api/combo/soldout
+// @desc 沽清/重售套餐（POS 前台長按使用）
+// @access private
+router.post(
+  '/soldout',
+  passport.authenticate('jwt', { session: false }),
+  (req, res) => {
+    Combo.findByIdAndUpdate(
+      req.body._id,
+      { $set: { soldOut: !!req.body.soldOut } },
+      { new: true }
+    )
+      .then(combo => {
+        if (!combo) {
+          res.status(400).send('找不到該套餐！')
+          return
+        }
+        emitMenuChanged()
+        res.send(combo.soldOut ? '套餐已沽清！' : '套餐已重售！')
+      })
+      .catch(err => {
+        console.log(err)
+        res.status(400).send('更新失败，请重试！')
+      })
+  }
+)
 
 // $route GET api/combo/menu
 // @desc 点餐端获取在售套餐（?channel=pos|qr 可依渠道過濾顯示）
@@ -156,13 +152,17 @@ router.get('/menu', async (req, res) => {
   if (channel === 'qr') query.showOnQr = { $ne: false }
   else if (channel === 'pos') query.showOnPos = { $ne: false }
   try {
-    const [result, addons] = await Promise.all([
-      Combo.find(query).sort({ date: -1 }).lean().exec(),
-      AddonGroup.find().lean().exec()
-    ])
-    const addonGroupMap = {}
-    addons.forEach(a => { addonGroupMap[String(a._id)] = a })
-    res.json(result.map(c => materializeCombo(c, addonGroupMap)))
+    const result = await Combo.find(query).sort({ date: -1 }).lean().exec()
+    const stamped = await Combo.stampItemsSoldOut(result)
+    res.json(stamped.map(c => {
+      const combo = materializeCombo(c)
+      // QR 端：顯示名改用 qrName，原 name 保留到 name2 供廚房單印 POS 名
+      if (channel === 'qr' && combo.qrName) {
+        combo.name2 = combo.name
+        combo.name = combo.qrName
+      }
+      return combo
+    }))
   } catch (err) {
     console.log(err)
     res.json([])
