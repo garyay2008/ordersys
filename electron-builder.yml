@@ -48,7 +48,7 @@ linux:
     - AppImage
     - deb
   category: Office
-  maintainer: orderSYS <ordersys@example.com>
+  maintainer: orderSYS <garyay@gmail.com>
 
 nsis:
   oneClick: false
