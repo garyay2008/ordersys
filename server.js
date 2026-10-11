@@ -33,7 +33,8 @@ const isConnected = mongoose
       require('./models/Staff').createIndexes(),
       require('./models/Table').createIndexes(),
       require('./models/Commodity').createIndexes(),
-      require('./models/AuditLog').createIndexes()
+      require('./models/AuditLog').createIndexes(),
+      require('./models/TerminalLicense').createIndexes()
     ]).then(() => console.log('[Log] Indexes ensured.')).catch(err => console.log('[Log] Index creation failed: ' + err.message))
     // 遷移：自動補齊 Commodity.categoryId（舊資料只有 category 字串）
     const Commodity = require('./models/Commodity')
@@ -101,6 +102,22 @@ if (process.env.LICENSE_ENFORCE === '1') {
     const status = license.getLicenseStatus()
     if (status.valid) return next()
     return res.status(402).json({ msg: '授權無效或已過期', code: status.reason })
+  })
+
+  // 分機授權強制驗證：請求帶 x-terminal-code 標頭時，需該收銀機已有有效授權
+  const TerminalLicense = require('./models/TerminalLicense')
+  app.use('/api', async (req, res, next) => {
+    const terminalCode = (req.get('x-terminal-code') || '').trim()
+    if (!terminalCode) return next()
+    // 授權啟用/查詢與收銀機清單端點豁免，供分機啟用流程使用
+    if (req.path.indexOf('/license') === 0 ||
+        req.path === '/posterminal/all' ||
+        req.path === '/posterminal/enabled') return next()
+    try {
+      const doc = await TerminalLicense.findOne({ code: terminalCode }).lean().exec()
+      if (doc && license.checkLicenseForId(doc.key, terminalCode).valid) return next()
+    } catch (e) { /* 查無或錯誤皆視為未授權 */ }
+    return res.status(402).json({ msg: '分機未授權或授權已過期', code: 'TERMINAL_UNLICENSED' })
   })
 }
 

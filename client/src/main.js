@@ -6,6 +6,16 @@ import store from './store'
 import './plugins/element.js'
 import socketPlugin from './plugins/socket'
 
+// 從 URL 讀取收銀機編號（?terminal=CODE），供分機授權識別與 POS 使用
+// 分機（POS/自助機/電子菜單/排隊屏）皆可經此參數指定所屬收銀機編號
+;(function resolveTerminalFromUrl () {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const terminal = params.get('terminal')
+    if (terminal) localStorage.setItem('posTerminal', terminal)
+  } catch (e) { /* 忽略 */ }
+})()
+
 Vue.use(socketPlugin)
 
 Vue.config.productionTip = false

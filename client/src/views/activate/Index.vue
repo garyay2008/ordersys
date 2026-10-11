@@ -1,10 +1,10 @@
 <template>
   <div id="activate">
     <div class="activate-box">
-      <p class="activate-title">授權啟用</p>
+      <p class="activate-title">{{ isTerminal ? '分機授權啟用' : '授權啟用' }}</p>
       <div class="machine-id">
-        <span class="label">機器識別碼</span>
-        <span class="value">{{ machineId }}</span>
+        <span class="label">{{ isTerminal ? '收銀機編號' : '機器識別碼' }}</span>
+        <span class="value">{{ isTerminal ? terminalCode : machineId }}</span>
       </div>
       <el-input
         type="textarea"
@@ -28,8 +28,15 @@ export default {
   data () {
     return {
       machineId: '',
+      terminalCode: '',
       licenseKey: '',
+      redirect: '',
       loading: false
+    }
+  },
+  computed: {
+    isTerminal () {
+      return !!this.terminalCode
     }
   },
   methods: {
@@ -39,30 +46,44 @@ export default {
         return
       }
       this.loading = true
-      this.$axios.post('/api/license/activate', { licenseKey: this.licenseKey.trim() })
-        .then(res => {
-          this.$message({ type: 'success', message: '授權成功，即將進入登入頁' })
-          setTimeout(() => {
-            this.$router.push('/login')
-          }, 1200)
-        })
-        .catch(err => {
-          const data = (err && err.response && err.response.data) || {}
-          this.$message({ type: 'error', message: data.msg || '授權失敗' })
-        })
-        .finally(() => {
-          this.loading = false
-        })
+      if (this.isTerminal) {
+        this.$axios.post('/api/license/activate-terminal', { terminalCode: this.terminalCode, licenseKey: this.licenseKey.trim() })
+          .then(() => {
+            this.$message({ type: 'success', message: '分機授權成功' })
+            const target = this.redirect || ('/pos?terminal=' + encodeURIComponent(this.terminalCode))
+            setTimeout(() => { window.location.href = target }, 1000)
+          })
+          .catch(err => {
+            const data = (err && err.response && err.response.data) || {}
+            this.$message({ type: 'error', message: data.msg || '授權失敗' })
+          })
+          .finally(() => { this.loading = false })
+      } else {
+        this.$axios.post('/api/license/activate', { licenseKey: this.licenseKey.trim() })
+          .then(() => {
+            this.$message({ type: 'success', message: '授權成功，即將進入登入頁' })
+            setTimeout(() => { this.$router.push('/login') }, 1200)
+          })
+          .catch(err => {
+            const data = (err && err.response && err.response.data) || {}
+            this.$message({ type: 'error', message: data.msg || '授權失敗' })
+          })
+          .finally(() => { this.loading = false })
+      }
     }
   },
   created () {
-    this.$axios.get('/api/license/status')
-      .then(res => {
-        this.machineId = (res.data && res.data.machineId) || ''
-      })
-      .catch(err => {
-        console.log(err)
-      })
+    this.terminalCode = (this.$route.query.terminal || '').trim()
+    this.redirect = (this.$route.query.redirect || '').trim()
+    if (!this.isTerminal) {
+      this.$axios.get('/api/license/status')
+        .then(res => {
+          this.machineId = (res.data && res.data.machineId) || ''
+        })
+        .catch(err => {
+          console.log(err)
+        })
+    }
   }
 }
 </script>

@@ -140,6 +140,36 @@ function startServer () {
   require(path.join(APP_ROOT, 'server.js'))
 }
 
+// 讀取 userData/app-config.json（若存在且格式正確），供啟動路徑/主機自訂
+function readAppConfig () {
+  const cfgFile = path.join(app.getPath('userData'), 'app-config.json')
+  try {
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+    return (cfg && typeof cfg === 'object') ? cfg : {}
+  } catch (e) { return {} }
+}
+
+// 啟動路徑（登入後開啟的畫面）：優先取環境變數 APP_START_PATH，其次取
+// app-config.json 的 startPath，最後預設 /pos（直接進 POS）
+function getStartPath () {
+  const env = process.env.APP_START_PATH
+  if (env && env.trim()) return env.trim()
+  const cfg = readAppConfig()
+  if (cfg.startPath && String(cfg.startPath).trim()) return String(cfg.startPath).trim()
+  return '/pos'
+}
+
+// 連線主機/IP：優先取環境變數 APP_START_HOST，其次取 app-config.json 的 host
+//（或 ip），最後預設 127.0.0.1（本機後端）
+function getStartHost () {
+  const env = process.env.APP_START_HOST
+  if (env && env.trim()) return env.trim()
+  const cfg = readAppConfig()
+  const host = cfg.host || cfg.ip
+  if (host && String(host).trim()) return String(host).trim()
+  return '127.0.0.1'
+}
+
 function createWindow () {
   const win = new BrowserWindow({
     width: 1280,
@@ -151,7 +181,10 @@ function createWindow () {
       contextIsolation: true
     }
   })
-  win.loadURL(`http://127.0.0.1:${serverPort}/`)
+  const startPath = getStartPath()
+  const startHost = getStartHost()
+  console.log(`[Electron] 啟動位置：http://${startHost}:${serverPort}${startPath}`)
+  win.loadURL(`http://${startHost}:${serverPort}${startPath}`)
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }

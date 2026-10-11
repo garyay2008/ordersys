@@ -25,6 +25,11 @@ _axios.interceptors.request.use(
     if (localStorage.orderTk && !(config.headers && config.headers.Authorization)) {
       config.headers.Authorization = localStorage.orderTk
     }
+    // 分機授權：附加收銀機編號標頭，供後端驗證該分機是否已授權
+    const terminalCode = localStorage.getItem('posTerminal')
+    if (terminalCode && !(config.headers && config.headers['x-terminal-code'])) {
+      config.headers['x-terminal-code'] = terminalCode
+    }
     return config
   },
   function (error) {
@@ -54,6 +59,18 @@ _axios.interceptors.response.use(
         p.indexOf('/queue') === 0
       if (!isPublicPage) {
         router.push('/login')
+      }
+    } else if (status === 402) {
+      // 授權失敗：主機授權或分機授權 → 導向啟用頁
+      const data = error.response.data || {}
+      const terminalCode = localStorage.getItem('posTerminal') || ''
+      const from = router.currentRoute.fullPath || router.currentRoute.path
+      const target = data.code === 'TERMINAL_UNLICENSED' && terminalCode
+        ? '/activate?terminal=' + encodeURIComponent(terminalCode) + '&redirect=' + encodeURIComponent(from)
+        : '/activate?redirect=' + encodeURIComponent(from)
+      Message.error(data.msg || '授權無效或已過期')
+      if (router.currentRoute.path !== '/activate') {
+        router.replace(target)
       }
     } else {
       Message.error(error.response.data || '請求失敗')

@@ -71,12 +71,12 @@ function parseLicense (key, publicKey) {
   return { valid: true, payload }
 }
 
-// 完整檢查：簽名 + 機器比對 + 到期日
-function checkLicense (key, publicKey) {
+// 完整檢查：簽名 + 指定 ID 比對 + 到期日（主機用 getMachineId，分機用收銀機編號）
+function checkLicenseForId (key, id, publicKey) {
   const parsed = parseLicense(key, publicKey)
   if (!parsed.valid) return parsed
   const p = parsed.payload || {}
-  if (p.mid && p.mid !== getMachineId()) {
+  if (p.mid && p.mid !== id) {
     return { valid: false, reason: 'MACHINE_MISMATCH', payload: p }
   }
   if (p.exp) {
@@ -86,6 +86,11 @@ function checkLicense (key, publicKey) {
     }
   }
   return parsed
+}
+
+// 主機授權檢查：綁定本機機器識別碼
+function checkLicense (key, publicKey) {
+  return checkLicenseForId(key, getMachineId(), publicKey)
 }
 
 // 授權碼檔案路徑：可經 LICENSE_FILE 覆寫（桌面版指向 userData/license.key）
@@ -143,6 +148,7 @@ module.exports = {
   generateLicense,
   parseLicense,
   checkLicense,
+  checkLicenseForId,
   readLicenseKey,
   saveLicenseKey,
   getLicenseStatus,

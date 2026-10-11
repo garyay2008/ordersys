@@ -46,10 +46,28 @@ export default {
           p.indexOf('/kiosk') === 0 || p.indexOf('/paykiosk') === 0 ||
           p.indexOf('/queue') === 0
         if (s.enforced && !s.valid && !isPublicPage && p !== '/activate') {
-          this.$router.replace('/activate')
+          this.$router.replace('/activate?redirect=' + encodeURIComponent(this.$router.currentRoute.fullPath || p))
         }
       })
       .catch(() => {})
+    // 分機授權：本機已指定收銀機編號時，檢查該分機是否已授權，未授權導向啟用頁
+    const terminalCode = localStorage.getItem('posTerminal')
+    if (terminalCode) {
+      const p = this.$router.currentRoute.path
+      const skip = p === '/activate' || p.indexOf('/admin') === 0 ||
+        p.indexOf('/index/') === 0 || p.indexOf('/login') === 0 || p.indexOf('/init') === 0
+      if (!skip) {
+        this.$axios.get('/api/license/terminal-status', { params: { code: terminalCode } })
+          .then(res => {
+            if (!res.data || !res.data.licensed) {
+              const target = '/activate?terminal=' + encodeURIComponent(terminalCode) +
+                '&redirect=' + encodeURIComponent(this.$router.currentRoute.fullPath || p)
+              this.$router.replace(target)
+            }
+          })
+          .catch(() => {})
+      }
+    }
   }
 }
 </script>
