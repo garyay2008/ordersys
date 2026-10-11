@@ -1,6 +1,6 @@
 {
   "name": "ordersys",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "This is a light ordering system for a small restaurant.",
   "main": "electron/main.js",
   "scripts": {
