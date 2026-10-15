@@ -10,6 +10,7 @@ directories:
 files:
   - server.js
   - config/**/*
+  - db/**/*
   - models/**/*
   - plugins/**/*
   - routes/**/*
