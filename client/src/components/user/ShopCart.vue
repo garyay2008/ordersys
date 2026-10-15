@@ -12,7 +12,7 @@
                     <div v-for="(item, idx) in sentItems" :key="idx" class="sent-item">
                         <span class="sent-item-name">
                             {{ item.name }}
-                            <span class="sent-item-mods" v-if="item.mods && item.mods.length">（{{ item.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}）</span>
+                            <span class="sent-item-mods" v-if="modsText(item)">（{{ modsText(item) }}）</span>
                         </span>
                         <span class="sent-item-right">
                             <span class="sent-item-qty">x{{ item.count }}</span>
@@ -202,6 +202,18 @@ export default {
     modsExtraOf (food) {
       return (food.mods || []).reduce((sum, m) => sum + (typeof m === 'object' && m && m.price ? Number(m.price) || 0 : 0), 0)
     },
+    // 已點食品的改碼摘要（含套餐子品項 contents[].mods）
+    modsText (item) {
+      const fmt = list => (list || []).map(m => (typeof m === 'string' ? m : (m && m.name) || '')).filter(Boolean).join('、')
+      const parts = []
+      const top = fmt(item.mods)
+      if (top) parts.push(top)
+      ;(item.contents || []).forEach(c => {
+        const ms = fmt(c && c.mods)
+        if (ms) parts.push((c.name || '') + '：' + ms)
+      })
+      return parts.join('；')
+    },
     // 跟餐價規則：購物車顯示的單價（跟餐價 + 改碼加價）
     displayFoodPrice (food, index) {
       const o = (this.priceOverride || {})[index]
@@ -333,7 +345,7 @@ export default {
     .sent-item{
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         padding: 10px 0;
         border-bottom: 1px solid #f5f5f5;
     }
@@ -346,9 +358,9 @@ export default {
         font-size: 13px;
         color: #1e293b;
         font-weight: 500;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        word-break: break-word;
+        line-height: 1.5;
     }
     .sent-item-mods{
         font-size: 11px;

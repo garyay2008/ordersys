@@ -231,6 +231,24 @@ const DEFAULT_FORMAT = {
       divider3: { show: true, type: '-' },
       divider4: { show: true, type: '=' }
     }
+  },
+  cancelall: {
+    title: '整單取消',
+    fields: {
+      title: { show: true, size: 3, align: 'center', bold: true },
+      shopName: { show: true, size: 4, align: 'center' },
+      deskNo: { show: true, size: 1, align: 'left' },
+      orderNo: { show: true, size: 1, align: 'left' },
+      waiter: { show: true, size: 1, align: 'left' },
+      items: { show: true, size: 1, align: 'left' },
+      reason: { show: true, size: 1, align: 'left' },
+      total: { show: true, size: 1, align: 'left' },
+      time: { show: true, size: 1, align: 'left' },
+      divider1: { show: true, type: '=' },
+      divider2: { show: true, type: '-' },
+      divider3: { show: true, type: '-' },
+      divider4: { show: true, type: '=' }
+    }
   }
 }
 
@@ -238,7 +256,7 @@ const DEFAULT_FORMAT = {
 Object.keys(DEFAULT_FORMAT).forEach(type => {
   const fields = DEFAULT_FORMAT[type].fields
   if (!fields) return
-  const simple = type === 'qrcode' || type === 'tableqr' || type === 'cancelitem'
+  const simple = type === 'qrcode' || type === 'tableqr' || type === 'cancelitem' || type === 'cancelall'
   if (!simple && !fields.waiter) fields.waiter = { show: true, size: 1, align: 'left' }
   if (!simple && !fields.items2) fields.items2 = { show: false, size: 1, align: 'left' }
   if (!simple && !fields.mods) fields.mods = { show: true, size: 1, align: 'left' }
@@ -295,7 +313,8 @@ const DEFAULT_ORDER = {
   chase: ['title', 'shopName', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'remark', 'time', 'sendTime', 'divider4'],
   receipt: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'payMethod', 'remark', 'time', 'sendTime', 'date', 'divider4', 'footer'],
   pantry: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'divider2', 'message', 'divider3', 'waiter', 'time', 'divider4'],
-  cancelitem: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'items', 'reason', 'divider3', 'time', 'divider4']
+  cancelitem: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'items', 'reason', 'divider3', 'time', 'divider4'],
+  cancelall: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'items', 'reason', 'total', 'divider3', 'time', 'divider4']
 }
 
 // 展開分組 order（元素可為字串或陣列），供舊資料相容檢查使用
@@ -1996,6 +2015,87 @@ function buildCancelItemTicket (setting, opts) {
   return concat(parts)
 }
 
+// 整單取消小票（整單取消後列印）：頂頭紅字「整單取消」+ 原因，內容採印單小票格式（品項/數量/小計）
+// opts: { order, reason, waiter }
+function buildCancelAllTicket (setting, opts) {
+  opts = opts || {}
+  const fmt = mergeFormat('cancelall', setting)
+  const fields = fmt.fields || {}
+  const f = (key) => fields[key] || { show: true, size: 1, align: 'left' }
+  const w = lineWidthOf(setting.paperWidth)
+  const parts = [initPrinter(setting)]
+  const timeText = moment(new Date()).format('HH:mm')
+  const order = opts.order || {}
+  const items = order.order || []
+  const renderers = {
+    shopName: (p) => {
+      if (f('shopName').show) p.push(textLine(setting.shopName || '', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true }))
+    },
+    title: (p) => {
+      if (!f('title').show || !fmt.title) return
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting, true))
+      else p.push(redOn())
+      p.push(fieldLine(fmt.title, f('title'), w))
+      if (useDot) p.push(endDotImage())
+      else p.push(redOff())
+    },
+    deskNo: (p) => {
+      if (!f('deskNo').show || order.deskNo == null || order.deskNo === '') return
+      p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w))
+    },
+    orderNo: (p) => {
+      if (f('orderNo').show && order.orderNo) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w))
+    },
+    waiter: (p) => {
+      if (f('waiter').show && opts.waiter) p.push(fieldLine(`開單員工：${opts.waiter}`, f('waiter'), w))
+    },
+    items: (p) => {
+      if (!f('items').show) return
+      const size = f('items').size || 1
+      for (const item of items) {
+        const unit = receiptUnitPrice(item)
+        const sub = Math.round(unit * (item.count || 1) * 100) / 100
+        const cells = [
+          { text: item.name, align: 'left', size },
+          { text: `${item.count}`, align: 'right', size },
+          { text: `$${sub.toFixed(2)}`, align: 'right', size }
+        ]
+        if (imageCtx) p.push(drawTextRow(cells))
+        else p.push(textRow(cells, w))
+        if (item.mods && item.mods.length) {
+          p.push(redOn())
+          for (const m of item.mods) {
+            const t = modText(m)
+            if (t) p.push(fieldLine('　' + t, f('mods'), w))
+          }
+          p.push(redOff())
+        }
+        if (item.contents && item.contents.length) pushComboContents(p, item, w, f('mods'))
+      }
+    },
+    reason: (p) => {
+      if (!f('reason').show || !opts.reason) return
+      const useDot = currentIsDot && !!(setting && setting.dotImagePrint)
+      if (useDot) p.push(beginDotImage(setting, true))
+      else p.push(redOn())
+      p.push(fieldLine(`原因：${opts.reason}`, f('reason'), w))
+      if (useDot) p.push(endDotImage())
+      else p.push(redOff())
+    },
+    total: (p) => {
+      if (f('total').show) p.push(fieldLine(`合計：$${Number(order.totalPrice || 0).toFixed(2)}`, f('total'), w))
+    },
+    time: (p) => {
+      if (f('time').show) p.push(fieldLine(`取消時間：${timeText}`, f('time'), w))
+    }
+  }
+  renderFields(parts, fmt.order, renderers, {}, fields, w)
+  parts.push(feedLines(3))
+  parts.push(cut())
+  return concat(parts)
+}
+
 // 座位分區：根據桌號查找區域打印機（service=服務檯預結單 / cashier=收銀髮票）
 function resolveZonePrinter (setting, deskNo, type) {
   const zones = (setting && setting.zones) ? setting.zones : []
@@ -2644,6 +2744,7 @@ module.exports = {
   buildChaseByStation,
   buildPantryMessage,
   buildCancelItemTicket,
+  buildCancelAllTicket,
   resolveZonePrinter,
   buildReceipt,
   buildTestTicket,

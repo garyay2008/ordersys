@@ -27,7 +27,7 @@
                         <span v-for="(m, i) in modCodeList" :key="i"
                               class="spec-item" :class="{active: selectedMods.some(x => x && (x.id || x.name) === m._id)}"
                               @click.stop="toggleMod(m)">
-                            {{ m.name }}<template v-if="qrSetting.showModPrices && (m.price || 0) > 0"> (+${{ m.price }})</template><i v-if="m.mandatory" class="req-badge">必選</i>
+                            {{ m.name }}<template v-if="qrSetting.showModPrices && (m.price || 0) > 0"> (+${{ m.price }})</template>
                         </span>
                         <el-input v-model="customMod" placeholder="自定義(如 走蔥)" size="mini"
                                   style="width: 130px; display: inline-block; margin-left: 6px;"
@@ -158,25 +158,6 @@ export default {
       for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) % 997
       return palette[hash % palette.length]
     },
-    // QR 端必選改碼驗證：同一類別內有 mandatory 的改碼，至少要選一項
-    validateMandatoryMods () {
-      const byCat = {}
-      this.modCodeList.forEach(m => {
-        if (!m.mandatory) return
-        const c = m.category || '其他'
-        if (!byCat[c]) byCat[c] = []
-        byCat[c].push(m)
-      })
-      for (const cat in byCat) {
-        const need = byCat[cat]
-        const ok = need.some(m => this.selectedMods.some(x => x && (x.id || x.name) === m._id))
-        if (!ok) {
-          this.$message({ type: 'warning', message: `請選擇「${cat}」的必選改碼` })
-          return false
-        }
-      }
-      return true
-    },
     hide () {
       this.showFlag = false
       this.$emit('close')
@@ -186,7 +167,6 @@ export default {
         return
       }
       if (this.submitting) return
-      if (!this.validateMandatoryMods()) return
       this.submitting = true
       setTimeout(() => { this.submitting = false }, 400)
       const specs = this.qrSetting.showSpecs ? this.food.specs : []
@@ -364,15 +344,6 @@ export default {
         color: var(--primary);
         background: var(--primary-soft);
         font-weight: 600;
-    }
-    .food .contents > .specs .req-badge{
-        font-size: 10px;
-        color: #fff;
-        background: var(--accent);
-        border-radius: 4px;
-        padding: 1px 4px;
-        margin-left: 4px;
-        font-style: normal;
     }
     .food .contents > .sold-out{
         position: absolute;

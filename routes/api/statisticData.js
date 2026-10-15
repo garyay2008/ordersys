@@ -306,7 +306,7 @@ router.post('/posReport', async (req, res) => {
     const slotGroups = groups(orders, order => order._slot || '非時段')
     const slotSection = { title: '時段營業', rows: slotGroups.map(row => ({ label: row.name, count: row.count, amount: money(row.amount) })) }
     if (type === 'dailyClose') {
-      const shop = await Shop.findOne().lean().exec()
+      const shop = await Shop.findOne()
       const shopCode = (shop && shop.shopCode) || '001'
       const shopName = (shop && shop.shopName) || ''
       const bizDate = from
@@ -404,7 +404,7 @@ router.post('/posReport', async (req, res) => {
     }
     if (type === 'monthly') {
       // 每月營業報表：依日分組的營業紀錄表（原營業額 / 單據 / 每單 / 人數 / 每人）
-      const shop = await Shop.findOne().lean().exec()
+      const shop = await Shop.findOne()
       const shopCode = (shop && shop.shopCode) || '001'
       const coms = await Commodity.find().select('_id price').lean().exec()
       const comMap = {}
@@ -489,13 +489,13 @@ router.post('/posReport', async (req, res) => {
       const pluFrom = String(req.body.plu_from || '').trim()
       const pluTo = String(req.body.plu_to || '').trim()
       const detail = req.body.detail === 'detail' || req.body.detail === true
-      const shop = await Shop.findOne().lean().exec()
+      const shop = await Shop.findOne()
       const shopName = (shop && shop.shopName) || ''
 
       const [commodities, categoryDocs, deptDocs] = await Promise.all([
         Commodity.find().select('_id plu department price categoryId categoryName nonBusiness').lean().exec(),
         Category.find().select('_id cName department').lean().exec(),
-        Department.find().select('name code').lean().exec()
+        Department.find()
       ])
       const comMap = {}
       commodities.forEach(c => { comMap[String(c._id)] = c })
@@ -635,7 +635,7 @@ router.post('/posReport', async (req, res) => {
       // 分市報表：入單計（依入單時間，含已結+未結）／埋單計（依埋單時間，只含已結）
       const mode = req.body.mode === 'settlement' ? 'settlement' : 'entry'
       const modeLabel = mode === 'settlement' ? '埋單計' : '入單計'
-      const shop = await Shop.findOne().lean().exec()
+      const shop = await Shop.findOne()
       const shopName = (shop && shop.shopName) || ''
       const slotLabel = name => {
         const s = globalSlots.find(x => x.name === name)
@@ -836,6 +836,12 @@ router.post('/posReport', async (req, res) => {
       const wcRows = []
       wholeCancel.forEach(o => {
         wcRows.push({ label: `${o.orderNo || ''}　${timeFmt(o.date)}`, amount: o.totalPrice })
+        ;(o.order || []).forEach(it => {
+          if (!it) return
+          const n = Number(it.count || it.qty || 1)
+          const p = Number(it.price || it.amount || 0)
+          wcRows.push({ label: `　${it.name || ''}`, count: n, amount: money(p * n) })
+        })
         wcRows.push({ label: `　${timeFmt(o.voidDate)}　${o.voidBy || ''}` })
         if (o.voidReason) wcRows.push({ label: `　原因：${o.voidReason}` })
       })

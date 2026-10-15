@@ -114,6 +114,9 @@ mongodb/*
 # 授權簽章私鑰（絕對不可上傳）
 tools/.license.private.key
 
+# 廠商登入密碼雜湊（絕對不可上傳）
+vendor.key
+
 # 備份檔 / 原始資料 / 截圖（不進版本控制）
 *.bak
 *.bak_*

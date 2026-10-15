@@ -1,9 +1,8 @@
-const { app, BrowserWindow, dialog, shell } = require('electron')
+const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 const net = require('net')
-const { spawn } = require('child_process')
 
 // 專案根目錄（server.js / config / models / plugins 等所在）
 const APP_ROOT = path.join(__dirname, '..')
@@ -60,7 +59,7 @@ function seedPublicDir () {
   }
 }
 
-// 等待某 TCP 埠可用（用於等 mongod / 後端 HTTP 就緒）
+// 等待某 TCP 埠可用（用於等後端 HTTP 就緒）
 function waitForPort (port, host, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   return new Promise((resolve, reject) => {
@@ -79,66 +78,7 @@ function waitForPort (port, host, timeoutMs) {
   })
 }
 
-// 尋找捆綁的 mongod 二進位（開發期在專案根 mongodb/，打包後在 resources/mongodb/）
-function findMongod () {
-  const name = process.platform === 'win32' ? 'mongod.exe' : 'mongod'
-  const candidates = [
-    path.join(APP_ROOT, 'mongodb', name),
-    path.join(process.resourcesPath, 'mongodb', name)
-  ]
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c
-  }
-  return null
-}
-
-let mongodProc = null
-const mongoPort = Number(process.env.MONGO_PORT || 27017)
 const serverPort = Number(process.env.PORT || 3000)
-
-// 啟動捆綁的 mongod；未捆綁時回傳 null，交由外部 MongoDB 連線
-async function startMongod () {
-  const bin = findMongod()
-  if (!bin) {
-    console.log('[Electron] 未找到捆綁的 mongod，改用外部 MongoDB（MONGO_URI）')
-    return null
-  }
-  const dbPath = path.join(app.getPath('userData'), 'data', 'db')
-  fs.mkdirSync(dbPath, { recursive: true })
-  console.log(`[Electron] 啟動 mongod（dbpath=${dbPath}, port=${mongoPort}）`)
-  mongodProc = spawn(bin, [
-    '--dbpath', dbPath,
-    '--port', String(mongoPort),
-    '--bind_ip', '127.0.0.1',
-    '--quiet'
-  ], { stdio: 'ignore' })
-  mongodProc.on('error', (e) => console.error('[Electron] mongod 啟動失敗：' + e.message))
-  mongodProc.on('exit', (code) => console.log(`[Electron] mongod 已退出 code=${code}`))
-  await waitForPort(mongoPort, '127.0.0.1', 30000)
-  return mongodProc
-}
-
-// 在 Electron 主程序內載入後端（server.js 會在 MongoDB 連上後才 listen）
-function startServer () {
-  if (mongodProc) {
-    process.env.MONGO_URI = `mongodb://127.0.0.1:${mongoPort}/orderSYS`
-  } else if (!process.env.MONGO_URI) {
-    process.env.MONGO_URI = `mongodb://127.0.0.1:${mongoPort}/orderSYS`
-  }
-  process.env.JWT_SECRET = ensureSecret('jwt.secret')
-  process.env.MACHINE_ID = ensureMachineId()
-  process.env.PUBLIC_DIR = path.join(app.getPath('userData'), 'public')
-  process.env.PORT = String(serverPort)
-  // 授權：桌面版強制驗證，授權碼寫入 userData/license.key（經啟用頁啟用）
-  process.env.LICENSE_FILE = path.join(app.getPath('userData'), 'license.key')
-  process.env.LICENSE_ENFORCE = '1'
-
-  seedPublicDir()
-
-  // 讓後端內依賴 cwd 的相對路徑正確解析（安全網）
-  process.chdir(APP_ROOT)
-  require(path.join(APP_ROOT, 'server.js'))
-}
 
 // 讀取 userData/app-config.json（若存在且格式正確），供啟動路徑/主機自訂
 function readAppConfig () {
@@ -147,6 +87,19 @@ function readAppConfig () {
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
     return (cfg && typeof cfg === 'object') ? cfg : {}
   } catch (e) { return {} }
+}
+
+// 合併寫入 userData/app-config.json，回傳寫入後的完整設定
+function writeAppConfig (patch) {
+  const cfgFile = path.join(app.getPath('userData'), 'app-config.json')
+  const next = Object.assign({}, readAppConfig(), patch || {})
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true })
+    fs.writeFileSync(cfgFile, JSON.stringify(next, null, 2), 'utf8')
+  } catch (e) {
+    console.error('[Electron] 寫入 app-config.json 失敗：' + e.message)
+  }
+  return next
 }
 
 // 啟動路徑（登入後開啟的畫面）：優先取環境變數 APP_START_PATH，其次取
@@ -170,39 +123,105 @@ function getStartHost () {
   return '127.0.0.1'
 }
 
+// 後端 HTTP 埠：優先取環境變數 PORT，其次取 app-config.json 的 port，預設 3000
+function getStartPort () {
+  const cfg = readAppConfig()
+  const p = Number(cfg.port)
+  if (p && Number.isInteger(p)) return p
+  return serverPort
+}
+
+// 在 Electron 主程序內載入後端（server.js 會在 PostgreSQL 連上後才 listen）
+function startServer () {
+  // PostgreSQL：由 app-config.json 的 pgConn 或環境變數 PG_CONN 指定；
+  // 未設定時沿用 config/config.js 的預設 pgConn
+  const cfg = readAppConfig()
+  if (!process.env.PG_CONN && cfg.pgConn && String(cfg.pgConn).trim()) {
+    process.env.PG_CONN = String(cfg.pgConn).trim()
+  }
+  process.env.JWT_SECRET = ensureSecret('jwt.secret')
+  process.env.MACHINE_ID = ensureMachineId()
+  process.env.PUBLIC_DIR = path.join(app.getPath('userData'), 'public')
+  process.env.PORT = String(getStartPort())
+  // 授權：桌面版強制驗證，授權碼寫入 userData/license.key（經啟用頁啟用）
+  process.env.LICENSE_FILE = path.join(app.getPath('userData'), 'license.key')
+  process.env.LICENSE_ENFORCE = '1'
+  // 廠商登入密碼（分機授權管理）：存於 userData/vendor.key
+  process.env.VENDOR_FILE = path.join(app.getPath('userData'), 'vendor.key')
+
+  seedPublicDir()
+
+  // 讓後端內依賴 cwd 的相對路徑正確解析（安全網）
+  process.chdir(APP_ROOT)
+  require(path.join(APP_ROOT, 'server.js'))
+}
+
 function createWindow () {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    fullscreen: true,
     title: 'orderSYS',
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
     }
   })
   const startPath = getStartPath()
   const startHost = getStartHost()
-  console.log(`[Electron] 啟動位置：http://${startHost}:${serverPort}${startPath}`)
-  win.loadURL(`http://${startHost}:${serverPort}${startPath}`)
+  const startPort = getStartPort()
+  const startURL = `http://${startHost}:${startPort}${startPath}`
+  console.log(`[Electron] 啟動位置：${startURL}`)
+  win.loadURL(startURL)
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  // 連線失敗兜底：改錯 IP 後仍能回到設定（重設本機 / 重新載入）
+  win.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame) return
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'error',
+      title: '連線失敗',
+      message: `無法連線到 ${startURL}`,
+      detail: `${desc} (${code})\n\n請確認伺服器 IP / 連接埠 / PostgreSQL 連線是否正確。`,
+      buttons: ['重設為本機 (127.0.0.1)', '重新載入', '取消'],
+      defaultId: 0,
+      cancelId: 2
+    })
+    if (choice === 0) {
+      writeAppConfig({ host: '127.0.0.1' })
+      win.loadURL(`http://127.0.0.1:${startPort}${startPath}`)
+    } else if (choice === 1) {
+      win.reload()
+    }
+  })
   return win
+}
+
+// IPC：供前端（經 preload）讀取/寫入連線設定；寫入後重載視窗套用
+function registerIpc () {
+  ipcMain.handle('app-config:get', () => readAppConfig())
+  ipcMain.handle('app-config:set', (e, patch) => {
+    const cfg = writeAppConfig(patch && typeof patch === 'object' ? patch : {})
+    const win = BrowserWindow.getFocusedWindow() || mainWindow
+    const startPath = getStartPath()
+    const startHost = getStartHost()
+    const startPort = getStartPort()
+    if (win) win.loadURL(`http://${startHost}:${startPort}${startPath}`)
+    return cfg
+  })
 }
 
 let mainWindow = null
 
 app.whenReady().then(async () => {
-  try {
-    await startMongod()
-  } catch (e) {
-    console.error('[Electron] MongoDB 啟動失敗：' + e.message)
-  }
+  registerIpc()
   startServer()
   try {
-    await waitForPort(serverPort, '127.0.0.1', 60000)
+    await waitForPort(getStartPort(), '127.0.0.1', 60000)
   } catch (e) {
     dialog.showErrorBox('啟動失敗', '後端伺服器未能啟動：' + e.message)
     app.quit()
@@ -218,10 +237,4 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (mainWindow === null) mainWindow = createWindow()
-})
-
-app.on('will-quit', () => {
-  if (mongodProc) {
-    try { mongodProc.kill() } catch (e) {}
-  }
 })

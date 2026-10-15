@@ -229,14 +229,20 @@ router.post(
         page.name = {}
       }
       const query = page.name
-      const result = await Commodity.aggregate([
-        { $match: query },
-        { $addFields: { _pluEmpty: { $cond: [{ $eq: [{ $ifNull: ['$plu', ''] }, ''] }, 1, 0] } } },
-        { $sort: { _pluEmpty: 1, plu: 1, _id: 1 } },
-        { $skip: page.size * (page.index - 1) },
-        { $limit: page.size }
-      ]).exec()
-      const total = await Commodity.countDocuments(query).exec()
+      const skip = page.size * (page.index - 1)
+      const all = await Commodity.find(query)
+      // 以 JS 排序替代 aggregate：PLU 空值排最後，再依 plu、_id 升序
+      all.sort((a, b) => {
+        const ae = (a.plu === '' || a.plu == null) ? 1 : 0
+        const be = (b.plu === '' || b.plu == null) ? 1 : 0
+        if (ae !== be) return ae - be
+        const pa = a.plu || ''
+        const pb = b.plu || ''
+        if (pa !== pb) return pa < pb ? -1 : 1
+        return String(a._id) < String(b._id) ? -1 : 1
+      })
+      const result = all.slice(skip, skip + page.size)
+      const total = await Commodity.countDocuments(query)
       res.json({ result, total })
     } catch (err) {
       console.log(err)

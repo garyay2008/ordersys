@@ -7,7 +7,7 @@ const Amount = require('../../models/Amount')
 // 取得所有設定（key=value 分組）
 router.get('/list', async (req, res) => {
   try {
-    const items = await Amount.find().sort({ date: 1 }).exec()
+    const items = await Amount.find({}, { sort: { date: 1 } })
     res.json(items)
   } catch (err) {
     console.log(err)
@@ -19,7 +19,7 @@ router.get('/list', async (req, res) => {
 // 取得指定 key 的值
 router.get('/:key', async (req, res) => {
   try {
-    const items = await Amount.find({ key: req.params.key }).sort({ date: 1 }).exec()
+    const items = await Amount.find({ key: req.params.key }, { sort: { date: 1 } })
     res.json(items)
   } catch (err) {
     console.log(err)
@@ -38,8 +38,7 @@ router.post(
       if (!key || !value) {
         return res.status(400).send('參數不完整')
       }
-      const item = new Amount({ key, value: value.trim() })
-      await item.save()
+      const item = await Amount.create({ key, value: value.trim() })
       res.json(item)
     } catch (err) {
       console.log(err)
@@ -55,7 +54,7 @@ router.post(
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
-      await Amount.findOneAndRemove({ _id: req.body._id }).exec()
+      await Amount.findOneAndRemove({ _id: req.body._id })
       res.send('刪除成功')
     } catch (err) {
       console.log(err)

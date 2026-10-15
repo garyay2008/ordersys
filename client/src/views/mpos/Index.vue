@@ -625,7 +625,7 @@ export default {
         terminalCode: this.staff.defaultTerminal || ''
       }).then(res => {
         this.$message({ type: 'success', message: res.data || '送單成功' })
-        this.$socket.emit('submitOrder')
+        this.$socketEmit('submitOrder')
         this.cartItems = []
         this.cartSheet = false
         this.fetchSentItems()

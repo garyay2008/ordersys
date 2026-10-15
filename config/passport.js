@@ -1,6 +1,5 @@
-const mongoose = require('mongoose')
-const User = mongoose.model('users')
-const Staff = mongoose.model('staff')
+const User = require('../models/User')
+const Staff = require('../models/Staff')
 const keys = require('./config.js').secretKey
 const JwtStrategy = require('passport-jwt').Strategy,
   ExtractJwt = require('passport-jwt').ExtractJwt
@@ -11,6 +10,10 @@ opts.secretOrKey = keys
 module.exports = passport => {
   passport.use(
     new JwtStrategy(opts, (jwt_payload, done) => {
+      // 廠商 token（不查資料庫，僅靠簽名 + kind 聲明）
+      if (jwt_payload.kind === 'vendor') {
+        return done(null, { kind: 'vendor', id: jwt_payload.id })
+      }
       // 員工（POS）token
       if (jwt_payload.kind === 'staff') {
         return Staff.findById(jwt_payload.id)

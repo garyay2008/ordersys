@@ -40,7 +40,7 @@ router.post('/activate-terminal', async (req, res) => {
       { code: terminalCode },
       { $set: { key, activatedAt: new Date() } },
       { upsert: true, new: true }
-    ).exec()
+    )
   } catch (e) {
     return res.status(500).json({ msg: '授權碼儲存失敗：' + e.message })
   }
@@ -54,7 +54,7 @@ router.get('/terminal-status', async (req, res) => {
     return res.json({ licensed: false })
   }
   try {
-    const doc = await TerminalLicense.findOne({ code }).lean().exec()
+    const doc = await TerminalLicense.findOne({ code })
     const licensed = !!(doc && license.checkLicenseForId(doc.key, code).valid)
     res.json({ licensed, code })
   } catch (e) {

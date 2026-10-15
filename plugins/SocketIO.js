@@ -19,6 +19,8 @@ async function releaseTerminalLocks (terminalCode) {
         await Order.deleteOne({ _id: o._id }).exec()
       } else {
         o.source = 'pos'
+        o.terminalCode = ''
+        o.lockedAt = null
         await o.save()
       }
     }

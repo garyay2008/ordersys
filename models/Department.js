@@ -1,32 +1,22 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-// 部門管理：菜譜用部門（廚房/水吧/燒味/點心 等），可由用戶自訂
-const DepartmentSchema = new Schema({
-  name: {
-    type: String,
-    required: true
+// 部門管理：菜譜用部門（廚房/水吧/燒味/點心 等）
+module.exports = makeModel(
+  'departments',
+  {
+    name: 'text',
+    code: 'text',
+    sort: 'int',
+    active: 'bool',
+    showInSplit: 'bool',
+    date: 'timestamp'
   },
-  code: {
-    type: String,
-    default: ''
-  },
-  sort: {
-    type: Number,
-    default: 0
-  },
-  active: {
-    type: Boolean,
-    default: true
-  },
-  showInSplit: {
-    type: Boolean,
-    default: true
-  },
-  date: {
-    type: Date,
-    default: Date.now
+  'department',
+  {
+    code: '',
+    sort: 0,
+    active: true,
+    showInSplit: true,
+    date: () => new Date()
   }
-})
-
-module.exports = Department = mongoose.model('department', DepartmentSchema)
+)

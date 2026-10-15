@@ -20,7 +20,6 @@
 </template>
 
 <script>
-import jwtDecode from 'jwt-decode'
 export default {
   name: 'login',
   data () {
@@ -63,10 +62,8 @@ export default {
             .then(res => {
               const { token } = res.data
               localStorage.setItem('orderTk', token)
-              const decoded = jwtDecode(token)
-              this.$store.dispatch('changeStat', !this.isEmpty(decoded))
-              this.$store.dispatch('setUser', decoded)
-              this.$router.push('/admin')
+              // 登入頁為獨立 entry，登入成功後整頁跳轉進入後台主 SPA（用戶狀態由主 SPA 自行重建）
+              window.location.href = '/admin'
             })
             .catch(err => {
               console.log(err)
@@ -75,9 +72,6 @@ export default {
           return false
         }
       })
-    },
-    isEmpty (value) {
-      return (value === undefined || value === null || (typeof value === 'object' && Object.keys(value).length === 0) || (typeof value === 'string' && value.trim().length === 0))
     }
   }
 }

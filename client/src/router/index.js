@@ -347,6 +347,22 @@ const routes = [
     component: () => import('../views/pos/Index')
   },
   {
+    path: '/vendor',
+    name: 'Vendor',
+    meta: {
+      title: '廠商分機授權'
+    },
+    component: () => import('../views/vendor/Index')
+  },
+  {
+    path: '/mreport',
+    name: 'Mreport',
+    meta: {
+      title: '營業報表'
+    },
+    component: () => import('../views/mreport/Index')
+  },
+  {
     path: '/mpos',
     name: 'Mpos',
     meta: {
@@ -412,10 +428,15 @@ function setTitle (to) {
 router.beforeEach((to, from, next) => {
   setTitle(to)
   const isLogin = !!localStorage.getItem('orderTk')
-  if (to.path === '/activate' || to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/mpos') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue')) {
+  if (to.path === '/activate' || to.path === '/login' || to.path === '/init' || to.path === '/init/admin' || to.path === '/init/shop' || to.path === '/init/complete' || to.path.startsWith('/index/') || to.path.startsWith('/pos') || to.path.startsWith('/mpos') || to.path.startsWith('/vendor') || to.path.startsWith('/emenu/') || to.path.startsWith('/kiosk') || to.path.startsWith('/paykiosk') || to.path.startsWith('/queue') || to.path.startsWith('/mreport')) {
     next()
   } else {
-    isLogin ? next() : next('/login')
+    if (isLogin) {
+      next()
+    } else {
+      // 登入頁已拆為獨立輕量 entry，整頁跳轉到 /login（載入 login.html）而非 SPA 內的 Login 路由
+      window.location.href = '/login'
+    }
   }
 })
 

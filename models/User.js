@@ -1,28 +1,17 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const UserSchema = new Schema({
-  username: {
-    type: String,
-    required: true
+// 管理員帳號（後台最高權限，middleware/auth.js 以 modelName === 'users' 判定）
+module.exports = makeModel(
+  'users',
+  {
+    username: 'text',
+    password: 'text',
+    email: 'text',
+    avatar: 'text',
+    date: 'timestamp'
   },
-  password: {
-    type: String,
-    required: true
-  },
-  email: {
-    type: String,
-    required: true
-  },
-  avatar: {
-    type: String
-  },
-  date: {
-    type: Date,
-    default: Date.now
+  'users',
+  {
+    date: () => new Date()
   }
-})
-
-const User = mongoose.model('users', UserSchema)
-
-module.exports = User
+)

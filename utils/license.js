@@ -44,6 +44,21 @@ function generateLicense (payload, privateKey) {
   return `${PREFIX}.${body}.${sig}`
 }
 
+// 讀取廠商私鑰：優先 LICENSE_PRIVATE_KEY 環境變數，其次 tools/.license.private.key。
+// 私鑰只存在廠商端；客戶機讀不到 → 回傳空字串，前端即可據此隱藏「產生授權碼」功能。
+function readPrivateKey () {
+  if (process.env.LICENSE_PRIVATE_KEY) return String(process.env.LICENSE_PRIVATE_KEY).trim()
+  try {
+    const v = fs.readFileSync(path.join(__dirname, '..', 'tools', '.license.private.key'), 'utf8').trim()
+    if (v) return v
+  } catch (e) { /* ignore */ }
+  return ''
+}
+
+function hasPrivateKey () {
+  return !!readPrivateKey()
+}
+
 // 解析並驗證簽名（客戶端，使用公鑰），回傳 { valid, reason, payload }
 function parseLicense (key, publicKey) {
   if (!key) return { valid: false, reason: 'NO_LICENSE' }
@@ -146,6 +161,8 @@ module.exports = {
   getMachineId,
   getPublicKey,
   generateLicense,
+  readPrivateKey,
+  hasPrivateKey,
   parseLicense,
   checkLicense,
   checkLicenseForId,

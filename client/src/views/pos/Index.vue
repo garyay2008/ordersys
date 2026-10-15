@@ -24,7 +24,12 @@
         <div class="login-topbar">
           <span v-if="selectedTerminal" class="login-terminal"><i class="el-icon-monitor"></i> {{ selectedTerminal }}</span>
           <span v-else class="login-terminal login-terminal-empty"></span>
-          <span class="login-clock"><i class="el-icon-time"></i> {{ currentTime }}</span>
+          <div class="login-topbar-right">
+            <span class="login-clock"><i class="el-icon-time"></i> {{ currentTime }}</span>
+            <el-tooltip v-if="isElectron" content="連線設定" placement="bottom">
+              <span class="login-conn-setting" @click="openConnSettings"><i class="el-icon-setting"></i></span>
+            </el-tooltip>
+          </div>
         </div>
 
         <!-- 品牌區 -->
@@ -404,7 +409,7 @@
                           <div class="food-plu" v-if="foodBtnSettings.showPlu !== false && !showFoodImages && cell.item.plu">{{ cell.item.plu }}</div>
                           <div class="food-name">{{ cell.item.name }}<span v-if="cell.item._isModCode" class="food-mod-badge">改碼</span><span v-if="cell.item.soldOut" class="food-soldout-tag">沽清</span></div>
                           <div class="food-price" v-if="foodBtnSettings.showPrice !== false && !cell.item._isModCategory">${{ cell.item.price }}</div>
-                          <div class="food-stock" v-if="cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
+                          <div class="food-stock" v-if="foodBtnSettings.showStock !== false && cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
                         </div>
                         <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                       </div>
@@ -580,7 +585,7 @@
                       <div class="food-plu" v-if="foodBtnSettings.showPlu !== false && !showFoodImages && cell.item.plu">{{ cell.item.plu }}</div>
                       <div class="food-name">{{ cell.item.name }}<span v-if="cell.item._isModCode" class="food-mod-badge">改碼</span><span v-if="cell.item.soldOut" class="food-soldout-tag">沽清</span></div>
                       <div class="food-price" v-if="foodBtnSettings.showPrice !== false && !cell.item._isModCategory">${{ cell.item.price }}</div>
-                      <div class="food-stock" v-if="cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
+                      <div class="food-stock" v-if="foodBtnSettings.showStock !== false && cell.item.stock >= 0 && !cell.item.soldOut">剩餘 {{ cell.item.stock }} 份</div>
                     </div>
                     <div v-if="cell.item.soldOut" class="food-soldout-cross">✕</div>
                   </div>
@@ -758,6 +763,26 @@
       </div>
     </el-dialog>
 
+    <!-- 連線設定（僅桌面版 Electron，經 preload 讀寫 app-config.json） -->
+    <el-dialog v-if="isElectron" title="連線設定" :visible.sync="connDialog.show" width="420px" custom-class="pos-dialog" append-to-body>
+      <el-form label-width="110px" size="small" style="margin-bottom:4px;">
+        <el-form-item label="伺服器 IP">
+          <el-input v-model="connDialog.host" placeholder="127.0.0.1"></el-input>
+        </el-form-item>
+        <el-form-item label="連接埠">
+          <el-input v-model="connDialog.port" placeholder="3000"></el-input>
+        </el-form-item>
+        <el-form-item label="PostgreSQL">
+          <el-input v-model="connDialog.pgConn" placeholder="postgres://user:pass@127.0.0.1:5432/ordersys"></el-input>
+        </el-form-item>
+      </el-form>
+      <p style="margin:0; color:#909399; font-size:12px; line-height:1.6;">儲存後會自動重新載入。伺服器 IP 預設 127.0.0.1（本機後端）；PostgreSQL 留空則沿用程式預設連線。</p>
+      <div slot="footer">
+        <el-button @click="connDialog.show = false">取 消</el-button>
+        <el-button type="primary" :loading="connDialog.saving" @click="saveConnSettings">儲 存</el-button>
+      </div>
+    </el-dialog>
+
     <!-- 上班/下班打卡 -->
     <clock-dialog :clock-dialog="clockDialog" :staff-info="staffInfo" :selected-terminal="selectedTerminal" :shift-info="shiftInfo" @shift-changed="shiftInfo = $event"></clock-dialog>
 
@@ -912,6 +937,8 @@ export default {
   data () {
     return {
       loggedIn: false,
+      isElectron: typeof window !== 'undefined' && !!window.appConfig,
+      connDialog: { show: false, host: '127.0.0.1', port: 3000, pgConn: '', saving: false },
       currentTime: '',
       timeTimer: null,
       loginNo: '',
@@ -986,7 +1013,7 @@ export default {
       catPage: 0,
       foodPage: 0,
       categoryOrder: [],
-      foodBtnSettings: { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true },
+      foodBtnSettings: { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true, showStock: true },
       foodZoneW: 0,
       foodZoneH: 0,
       foodBtnHReal: 0,
@@ -2339,6 +2366,32 @@ export default {
     openClockOut () {
       this.clockDialog = { show: true, mode: 'out', openingCash: '', closingCash: '', remark: '', staffNo: '', loading: false }
     },
+    async openConnSettings () {
+      this.connDialog = { show: true, host: '127.0.0.1', port: 3000, pgConn: '', saving: false }
+      if (!window.appConfig) return
+      try {
+        const cfg = await window.appConfig.get()
+        this.connDialog.host = cfg.host || cfg.ip || '127.0.0.1'
+        this.connDialog.port = cfg.port || 3000
+        this.connDialog.pgConn = cfg.pgConn || ''
+      } catch (e) { /* 忽略，保留預設值 */ }
+    },
+    async saveConnSettings () {
+      if (!window.appConfig) return
+      this.connDialog.saving = true
+      try {
+        const host = String(this.connDialog.host || '').trim() || '127.0.0.1'
+        const port = Number(this.connDialog.port) || 3000
+        const pgConn = String(this.connDialog.pgConn || '').trim()
+        const patch = { host, port }
+        if (pgConn) patch.pgConn = pgConn
+        await window.appConfig.set(patch)
+        // 主程序會在寫入後自動重載視窗套用
+      } catch (e) {
+        this.$message.error('儲存失敗：' + (e && e.message ? e.message : e))
+        this.connDialog.saving = false
+      }
+    },
     loadTerminals () {
       // 從 URL 參數獲取 terminalCode（如 /pos?terminal=POS-01）
       const urlParams = new URLSearchParams(window.location.search)
@@ -2365,9 +2418,11 @@ export default {
     },
     emitRegisterTerminal () {
       if (!this.selectedTerminal) return
-      if (this.$socket && this.$socket.connected) {
-        this.$socket.emit('registerTerminal', this.selectedTerminal)
-      }
+      this.$getSocket().then(s => {
+        if (s && s.connected) {
+          s.emit('registerTerminal', this.selectedTerminal)
+        }
+      })
     },
     loadTables () {
       if (!this.loggedIn) return Promise.resolve()
@@ -2727,7 +2782,7 @@ export default {
         this.catBtnSettings = { fontSize: cbs.fontSize || 13, width: cbs.width != null ? cbs.width : 0, height: cbs.height || 40, padding: cbs.padding != null ? cbs.padding : 20, paddingY: cbs.paddingY != null ? cbs.paddingY : 0, gapX: cbs.gapX != null ? cbs.gapX : 10, gapY: cbs.gapY != null ? cbs.gapY : 10, cols: cbs.cols > 0 ? cbs.cols : 4, rows: cbs.rows != null ? cbs.rows : 6, shape: cbs.shape || 'pill' }
         this.categoryOrder = Array.isArray(d.categoryOrder) ? d.categoryOrder : []
         const fbs = d.foodBtnSettings || {}
-        this.foodBtnSettings = { cols: fbs.cols != null ? fbs.cols : 0, rows: fbs.rows != null ? fbs.rows : 0, fontSize: fbs.fontSize || 25, width: fbs.width != null ? fbs.width : 0, height: fbs.height != null ? fbs.height : 0, minHeight: fbs.minHeight || 88, imageSize: fbs.imageSize || 40, paddingX: fbs.paddingX != null ? fbs.paddingX : 3, paddingY: fbs.paddingY != null ? fbs.paddingY : 6, gapX: fbs.gapX != null ? fbs.gapX : 6, gapY: fbs.gapY != null ? fbs.gapY : 6, showPlu: fbs.showPlu !== false, showPrice: fbs.showPrice !== false }
+        this.foodBtnSettings = { cols: fbs.cols != null ? fbs.cols : 0, rows: fbs.rows != null ? fbs.rows : 0, fontSize: fbs.fontSize || 25, width: fbs.width != null ? fbs.width : 0, height: fbs.height != null ? fbs.height : 0, minHeight: fbs.minHeight || 88, imageSize: fbs.imageSize || 40, paddingX: fbs.paddingX != null ? fbs.paddingX : 3, paddingY: fbs.paddingY != null ? fbs.paddingY : 6, gapX: fbs.gapX != null ? fbs.gapX : 6, gapY: fbs.gapY != null ? fbs.gapY : 6, showPlu: fbs.showPlu !== false, showPrice: fbs.showPrice !== false, showStock: fbs.showStock !== false }
         this.managerMenu = Array.isArray(d.managerMenu) ? d.managerMenu : []
         this.discountOptions = Array.isArray(d.discountOptions) ? d.discountOptions : []
         const cts = d.calledTagStyle || {}
@@ -2975,6 +3030,12 @@ export default {
       const nos = this.physicalNos(no)
       return this.unfinishedOrders.find(o => nos.indexOf(String(o.deskNo)) >= 0 && o.source === 'extension')
     },
+    isStaleLock (lockOrder) {
+      // 鎖定超過 TTL（與後端 LOCK_TTL_MS 一致，30 分鐘）視為呆鎖，允許其他工作站接管
+      if (!lockOrder || !lockOrder.lockedAt) return false
+      const ttl = 30 * 60 * 1000
+      return Date.now() - new Date(lockOrder.lockedAt).getTime() > ttl
+    },
     boardClass (no) {
       if (no === this.selectedTable) return 'board-active'
       if (this.lockOrderOf(no)) return 'board-qr'
@@ -3124,7 +3185,11 @@ export default {
     },
     enterTable (no) {
       const lockOrder = this.lockOrderOf(no)
-      if (lockOrder) {
+      // 同一工作站可重新進入自己鎖定的枱；鎖已過期（呆鎖）時也允許接管。
+      // 頁面重整/斷線會留下呆鎖（extension 單未解鎖），若連鎖定者本機都被擋，就再也無法進入該枱。
+      const ownLock = lockOrder && this.selectedTerminal && String(lockOrder.terminalCode || '') === String(this.selectedTerminal)
+      const staleLock = this.isStaleLock(lockOrder)
+      if (lockOrder && !ownLock && !staleLock) {
         const terminal = lockOrder.terminalCode || ''
         const msg = terminal ? `此枱由分機 ${terminal} 使用中，完成訂單後才可使用` : '此枱由分機使用中，完成訂單後才可使用'
         this.$message({ type: 'warning', message: msg })
@@ -6702,6 +6767,9 @@ export default {
 .login-terminal{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #5b7696; background: #eef3f8; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
 .login-terminal-empty{ min-width: 10px; }
 .login-clock{ display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #1f3a5f; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+.login-topbar-right{ display: inline-flex; align-items: center; gap: 10px; }
+.login-conn-setting{ display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: #5b7696; cursor: pointer; font-size: 18px; transition: all .15s; }
+.login-conn-setting:hover{ background: #eef3f8; color: #1f3a5f; }
 .login-brand{ text-align: center; margin-bottom: 16px; }
 .login-icon{ width: 64px; height: 64px; margin: 0 auto 10px; background: linear-gradient(135deg, #409eff 0%, #2c6fb5 100%); border-radius: 18px; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(64,158,255,.35); }
 .login-icon i{ font-size: 32px; color: #fff; }

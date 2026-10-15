@@ -1,27 +1,27 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-// 排隊叫號設定（singleton）
-const QueueSettingSchema = new Schema({
-  enabled: { type: Boolean, default: true },
-  // 叫號語音（瀏覽器 TTS）
-  voiceEnabled: { type: Boolean, default: true },
-  // 顯示屏標題
-  title: { type: String, default: '排隊叫號' },
-  // 副標題 / 公告
-  subtitle: { type: String, default: '請取票後在候餐區等候' },
-  // 人數分類：prefix 用於編號前綴（A/B/C…）
-  categories: [{
-    prefix: { type: String, default: '' },
-    label: { type: String, default: '' },
-    minPax: { type: Number, default: 1 },
-    maxPax: { type: Number, default: 99 },
-    color: { type: String, default: '#409eff' }
-  }],
-  updatedAt: { type: Date, default: Date.now }
-})
+const QueueSetting = makeModel(
+  'queuesettings',
+  {
+    enabled: 'bool',
+    voiceEnabled: 'bool',
+    title: 'text',
+    subtitle: 'text',
+    categories: 'json',
+    updatedAt: 'timestamp'
+  },
+  'queuesetting',
+  {
+    enabled: true,
+    voiceEnabled: true,
+    title: '排隊叫號',
+    subtitle: '請取票後在候餐區等候',
+    categories: [],
+    updatedAt: () => new Date()
+  }
+)
 
-QueueSettingSchema.statics.getDefault = function () {
+QueueSetting.getDefault = function () {
   return {
     enabled: true,
     voiceEnabled: true,
@@ -35,4 +35,4 @@ QueueSettingSchema.statics.getDefault = function () {
   }
 }
 
-module.exports = mongoose.model('queueSetting', QueueSettingSchema)
+module.exports = QueueSetting

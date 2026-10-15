@@ -257,7 +257,9 @@ router.post('/randomColors', passport.authenticate('jwt', { session: false }), a
         }
       }
     })
-    await Category.bulkWrite(ops)
+    for (const op of ops) {
+      await Category.updateOne(op.updateOne.filter, op.updateOne.update)
+    }
     emitMenuChanged()
     res.send(`已為 ${all.length} 個分類隨機配色！`)
   } catch (err) {

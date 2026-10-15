@@ -13,28 +13,28 @@ const { requireLevel } = require('../../middleware/auth')
 router.get(
   '/all',
   passport.authenticate('jwt', { session: false }), requireLevel(4),
-  (req, res) => {
-    Staff.find()
-      .sort({ no: 1, date: 1 })
-      .then(result => res.json(result))
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('獲取用戶失敗！')
-      })
+  async (req, res) => {
+    try {
+      const result = await Staff.find({}, { sort: { no: 1, date: 1 } })
+      res.json(result)
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('獲取用戶失敗！')
+    }
   }
 )
 
 // $route GET api/staff/list
 // @desc 前台获取用户列表
 // @access public
-router.get('/list', (req, res) => {
-  Staff.find({ enabled: true })
-    .sort({ no: 1, date: 1 })
-    .then(result => res.json(result))
-    .catch(err => {
-      console.log(err)
-      res.json([])
-    })
+router.get('/list', async (req, res) => {
+  try {
+    const result = await Staff.find({ enabled: true }, { sort: { no: 1, date: 1 } })
+    res.json(result)
+  } catch (err) {
+    console.log(err)
+    res.json([])
+  }
 })
 
 // $route POST api/staff/login
@@ -44,7 +44,7 @@ router.post('/login', async (req, res) => {
   try {
     const no = (req.body.no || '').trim()
     const password = req.body.password || ''
-    const staff = await Staff.findOne({ no, enabled: true }).exec()
+    const staff = await Staff.findOne({ no, enabled: true })
     if (!staff) {
       res.status(400).send('用戶編號錯誤或已停用！')
       return
@@ -86,7 +86,7 @@ router.post(
     try {
       const no = (req.body.no || '').trim()
       if (no) {
-        const exist = await Staff.findOne({ no }).exec()
+        const exist = await Staff.findOne({ no })
         if (exist) {
           res.status(400).send('用戶編號已存在！')
           return
@@ -94,10 +94,8 @@ router.post(
       }
       const data = Object.assign({}, req.body)
       if (data.password) data.password = bcrypt.hashSync(data.password, 10)
-      // 更新 defaultTerminal
       if (req.body.defaultTerminal !== undefined) data.defaultTerminal = req.body.defaultTerminal
-      const staff = new Staff(data)
-      await staff.save()
+      await Staff.create(data)
       res.send('用戶添加成功！')
     } catch (err) {
       console.log(err)
@@ -112,21 +110,22 @@ router.post(
 router.post(
   '/edit',
   passport.authenticate('jwt', { session: false }), requireLevel(4),
-  (req, res) => {
-    const data = Object.assign({}, req.body)
-    delete data._id
-    if (data.password) data.password = bcrypt.hashSync(data.password, 10)
-    else delete data.password
-    // 白名單：只允許更新的欄位
-    const allowed = ['name', 'no', 'role', 'permissionLevel', 'permissions', 'password', 'enabled', 'defaultTerminal']
-    const update = {}
-    allowed.forEach(f => { if (data[f] !== undefined) update[f] = data[f] })
-    Staff.findOneAndUpdate({ _id: req.body._id }, { $set: update }, { new: true })
-      .then(() => res.send('用戶修改成功！'))
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('修改失敗，請重試！')
-      })
+  async (req, res) => {
+    try {
+      const data = Object.assign({}, req.body)
+      delete data._id
+      if (data.password) data.password = bcrypt.hashSync(data.password, 10)
+      else delete data.password
+      // 白名單：只允許更新的欄位
+      const allowed = ['name', 'no', 'role', 'permissionLevel', 'permissions', 'password', 'enabled', 'defaultTerminal']
+      const update = {}
+      allowed.forEach(f => { if (data[f] !== undefined) update[f] = data[f] })
+      await Staff.updateOne({ _id: req.body._id }, { $set: update })
+      res.send('用戶修改成功！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('修改失敗，請重試！')
+    }
   }
 )
 
@@ -136,13 +135,14 @@ router.post(
 router.post(
   '/del',
   passport.authenticate('jwt', { session: false }), requireLevel(4),
-  (req, res) => {
-    Staff.findOneAndRemove({ _id: req.body._id })
-      .then(() => res.send('用戶刪除成功！'))
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('刪除失敗，請重試！')
-      })
+  async (req, res) => {
+    try {
+      await Staff.findOneAndRemove({ _id: req.body._id })
+      res.send('用戶刪除成功！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('刪除失敗，請重試！')
+    }
   }
 )
 
@@ -153,12 +153,12 @@ router.post('/changePassword', async (req, res) => {
   try {
     const { no, oldPassword, newPassword } = req.body
     if (!no || !oldPassword || !newPassword) return res.status(400).send('請填寫完整資料！')
-    const staff = await Staff.findOne({ no }).exec()
+    const staff = await Staff.findOne({ no })
     if (!staff) return res.status(400).send('員工不存在！')
     const isMatch = await bcrypt.compare(oldPassword, staff.password)
     if (!isMatch) return res.status(400).send('舊密碼不正確！')
-    staff.password = bcrypt.hashSync(newPassword, 10)
-    await staff.save()
+    const password = bcrypt.hashSync(newPassword, 10)
+    await Staff.updateOne({ _id: staff._id }, { $set: { password } })
     res.json({ success: true, message: '密碼更改成功！' })
   } catch (err) {
     console.log(err)

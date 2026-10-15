@@ -1,5 +1,124 @@
 import Vue from 'vue'
-import Element from 'element-ui'
-import 'element-ui/lib/theme-chalk/index.css'
+import {
+  Alert,
+  Autocomplete,
+  Button,
+  ButtonGroup,
+  Card,
+  Checkbox,
+  CheckboxGroup,
+  Col,
+  Collapse,
+  CollapseItem,
+  ColorPicker,
+  DatePicker,
+  Descriptions,
+  DescriptionsItem,
+  Dialog,
+  Divider,
+  Drawer,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  Form,
+  FormItem,
+  Input,
+  InputNumber,
+  Link,
+  Menu,
+  MenuItem,
+  Option,
+  Pagination,
+  Popconfirm,
+  Radio,
+  RadioButton,
+  RadioGroup,
+  Row,
+  Select,
+  Slider,
+  Step,
+  Steps,
+  Submenu,
+  Switch,
+  TabPane,
+  Table,
+  TableColumn,
+  Tabs,
+  Tag,
+  TimePicker,
+  TimeSelect,
+  Tooltip,
+  Tree,
+  Upload,
+  Loading,
+  Message,
+  MessageBox,
+  Notification
+} from 'element-ui'
 
-Vue.use(Element)
+const components = [
+  Alert,
+  Autocomplete,
+  Button,
+  ButtonGroup,
+  Card,
+  Checkbox,
+  CheckboxGroup,
+  Col,
+  Collapse,
+  CollapseItem,
+  ColorPicker,
+  DatePicker,
+  Descriptions,
+  DescriptionsItem,
+  Dialog,
+  Divider,
+  Drawer,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  Form,
+  FormItem,
+  Input,
+  InputNumber,
+  Link,
+  Menu,
+  MenuItem,
+  Option,
+  Pagination,
+  Popconfirm,
+  Radio,
+  RadioButton,
+  RadioGroup,
+  Row,
+  Select,
+  Slider,
+  Step,
+  Steps,
+  Submenu,
+  Switch,
+  TabPane,
+  Table,
+  TableColumn,
+  Tabs,
+  Tag,
+  TimePicker,
+  TimeSelect,
+  Tooltip,
+  Tree,
+  Upload
+]
+
+components.forEach(component => {
+  Vue.use(component)
+})
+
+Vue.use(Loading)
+
+Vue.prototype.$ELEMENT = { size: '', zIndex: 2000 }
+Vue.prototype.$message = Message
+Vue.prototype.$msgbox = MessageBox
+Vue.prototype.$alert = MessageBox.alert
+Vue.prototype.$confirm = MessageBox.confirm
+Vue.prototype.$prompt = MessageBox.prompt
+Vue.prototype.$notify = Notification

@@ -13,7 +13,7 @@ router.post('/in', async (req, res) => {
     if (!staffNo) return res.status(400).send('請輸入員工編號！')
 
     // 依後台「用戶管理」的員工編號查詢，取得姓名並確認存在
-    const staff = await Staff.findOne({ no: staffNo, enabled: true }).exec()
+    const staff = await Staff.findOne({ no: staffNo, enabled: true })
     if (!staff) return res.status(400).send('員工編號不存在或已停用！')
 
     // 檢查該員工 + 該收銀機是否已有上班中的紀錄

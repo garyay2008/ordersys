@@ -10,14 +10,14 @@ const socketio = require('../../plugins/SocketIO')
 router.get(
   '/all',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    Table.find()
-      .sort({ no: 1 })
-      .then(result => res.json(result))
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('获取桌号失败！')
-      })
+  async (req, res) => {
+    try {
+      const result = await Table.find({}, { sort: { no: 1 } })
+      res.json(result)
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('获取桌号失败！')
+    }
   }
 )
 
@@ -30,7 +30,7 @@ router.post(
   async (req, res) => {
     try {
       const no = String(req.body.no)
-      const exist = await Table.findOne({ no }).exec()
+      const exist = await Table.findOne({ no })
       if (exist) {
         res.status(400).send('桌号已存在！')
         return
@@ -40,7 +40,7 @@ router.post(
       if (suffixMatch) {
         const parentNo = suffixMatch[1]
         const suffix = suffixMatch[2].toUpperCase()
-        const parent = await Table.findOne({ no: parentNo }).exec()
+        const parent = await Table.findOne({ no: parentNo })
         if (parent) {
           data.physicalNo = parentNo
           data.shareSuffix = suffix
@@ -57,8 +57,7 @@ router.post(
         data.shareSuffix = ''
         data.name = ''
       }
-      const table = new Table(data)
-      await table.save()
+      await Table.create(data)
       res.send('桌号添加成功！')
       try {
         const io = socketio.getIO()
@@ -77,22 +76,21 @@ router.post(
 router.post(
   '/edit',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    const _id = req.body._id
-    const data = Object.assign({}, req.body)
-    delete data._id
-    Table.findOneAndUpdate({ _id }, { $set: data }, { new: true })
-      .then(() => {
-        res.send('桌号修改成功！')
-        try {
-          const io = socketio.getIO()
-          if (io) io.emit('tableLayoutChanged')
-        } catch (e) {}
-      })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('修改失败，请重试！')
-      })
+  async (req, res) => {
+    try {
+      const _id = req.body._id
+      const data = Object.assign({}, req.body)
+      delete data._id
+      await Table.updateOne({ _id }, { $set: data })
+      res.send('桌号修改成功！')
+      try {
+        const io = socketio.getIO()
+        if (io) io.emit('tableLayoutChanged')
+      } catch (e) {}
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('修改失败，请重试！')
+    }
   }
 )
 
@@ -107,7 +105,7 @@ router.post(
       const tables = req.body.tables || []
       await Promise.all(tables.map(t => {
         if (!t._id) return Promise.resolve()
-        return Table.updateOne({ _id: t._id }, { $set: { x: t.x, y: t.y } }).exec()
+        return Table.updateOne({ _id: t._id }, { $set: { x: t.x, y: t.y } })
       }))
       res.send('桌位版面儲存成功！')
       try {
@@ -127,19 +125,18 @@ router.post(
 router.post(
   '/del',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    Table.findOneAndRemove({ _id: req.body._id })
-      .then(() => {
-        res.send('桌号删除成功！')
-        try {
-          const io = socketio.getIO()
-          if (io) io.emit('tableLayoutChanged')
-        } catch (e) {}
-      })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('删除失败，请重试！')
-      })
+  async (req, res) => {
+    try {
+      await Table.findOneAndRemove({ _id: req.body._id })
+      res.send('桌号删除成功！')
+      try {
+        const io = socketio.getIO()
+        if (io) io.emit('tableLayoutChanged')
+      } catch (e) {}
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('删除失败，请重试！')
+    }
   }
 )
 

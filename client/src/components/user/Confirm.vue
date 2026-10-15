@@ -15,7 +15,7 @@
                             <li v-for="(item, idx) in sentItems" :key="'sent-' + idx">
                                 <div class="item-info">
                                     <span class="name">{{ item.name }}</span>
-                                    <span class="mods-line" v-if="item.mods && item.mods.length">（{{ item.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}）</span>
+                                    <span class="mods-line" v-if="modsText(item)">（{{ modsText(item) }}）</span>
                                 </div>
                                 <span class="count">x{{ item.count }}</span>
                                 <span class="price">${{ Math.round((item.price * item.count) * 100) / 100 }}</span>
@@ -29,7 +29,7 @@
                                     <span class="name">{{ item.name }}</span>
                                     <div class="mods-row" v-if="(item.mods && item.mods.length) || item.isCombo">
                                         <span class="edit-mod-btn" @click.stop="editMods(item)">修改</span>
-                                        <span class="mods-line" v-if="item.mods && item.mods.length">（{{ item.mods.map(m => typeof m === 'string' ? m : m.name).join('、') }}）</span>
+                                        <span class="mods-line" v-if="modsText(item)">（{{ modsText(item) }}）</span>
                                     </div>
                                 </div>
                                 <span class="count">x{{ item.count }}</span>
@@ -149,6 +149,18 @@ export default {
     editMods (item) {
       this.$emit('edit-mods', item)
     },
+    // 已點食品的改碼摘要（含套餐子品項 contents[].mods）
+    modsText (item) {
+      const fmt = list => (list || []).map(m => (typeof m === 'string' ? m : (m && m.name) || '')).filter(Boolean).join('、')
+      const parts = []
+      const top = fmt(item.mods)
+      if (top) parts.push(top)
+      ;(item.contents || []).forEach(c => {
+        const ms = fmt(c && c.mods)
+        if (ms) parts.push((c.name || '') + '：' + ms)
+      })
+      return parts.join('；')
+    },
     askConfirm () {
       this.showConfirmBox = true
     },
@@ -162,7 +174,7 @@ export default {
       const payload = { ...this.orderData, source: 'qr' }
       this.$axios.post('/api/order/submit', payload)
         .then(res => {
-          this.$socket.emit('submitOrder')
+          this.$socketEmit('submitOrder')
           this.$emit('clear')
           this.orderSuccess = true
         })

@@ -1,32 +1,17 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const CategoryItemSchema = new Schema({
-  categoryId: {
-    type: Schema.Types.ObjectId,
-    ref: 'category',
-    required: true,
-    index: true
+module.exports = makeModel(
+  'categoryitems',
+  {
+    categoryId: 'id',
+    targetId: 'id',
+    targetType: 'text',
+    sortOrder: 'int',
+    date: 'timestamp'
   },
-  targetId: {
-    type: Schema.Types.ObjectId,
-    required: true
-  },
-  targetType: {
-    type: String,
-    enum: ['category', 'combo', 'commodity', 'modcode', 'modcodecategory'],
-    required: true
-  },
-  sortOrder: {
-    type: Number,
-    default: 0
-  },
-  date: {
-    type: Date,
-    default: Date.now
+  'categoryItem',
+  {
+    sortOrder: 0,
+    date: () => new Date()
   }
-})
-
-CategoryItemSchema.index({ categoryId: 1, sortOrder: 1 })
-
-module.exports = CategoryItem = mongoose.model('categoryItem', CategoryItemSchema)
+)

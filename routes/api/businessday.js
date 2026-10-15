@@ -316,7 +316,7 @@ router.post('/close', async (req, res) => {
     } catch (e) { /* ignore */ }
 
     // 每日完結後清除搭枱子枱（shareSuffix 非空者），讓子枱不殘留在枱面
-    await Table.deleteMany({ shareSuffix: { $exists: true, $ne: '' } }).exec()
+    await Table.deleteMany({ shareSuffix: { $exists: true, $ne: '' } })
     try {
       const io = socketio.getIO()
       if (io) io.emit('tableLayoutChanged')

@@ -184,6 +184,15 @@
           </div>
           <div class="rounding-hint">退菜後列印「已取消」小票：廚房出單＝廚房印表機是否出單，工作站出單＝本收銀機是否出單。</div>
         </el-form-item>
+        <el-form-item label="整單取消小票">
+          <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
+            <div>
+              <div style="font-size:12px; color:#606266; margin-bottom:2px;">廚房出單</div>
+              <el-switch v-model="form.cancelAllPrint.kitchen" active-text="開" inactive-text="關"></el-switch>
+            </div>
+          </div>
+          <div class="rounding-hint">整單取消後收銀機固定列印「整單取消」小票（含原因，內容為印單小票格式），廚房印表機是否出單由此開關控制。</div>
+        </el-form-item>
         <el-form-item label="跳飛 POS 通知">
           <el-switch v-model="form.failoverNotify" active-text="開啟" inactive-text="關閉"></el-switch>
           <div class="rounding-hint">開啟後，打印機跳飛（備援機／廚房通用機代印）時，POS 前台頂部會顯示閃爍提示；關閉則不顯示。</div>
@@ -680,6 +689,9 @@
             <el-form-item label="顯示價錢">
               <el-switch v-model="foodBtnSettings.showPrice" active-text="開啟" inactive-text="關閉"></el-switch>
             </el-form-item>
+            <el-form-item label="顯示庫存剩餘">
+              <el-switch v-model="foodBtnSettings.showStock" active-text="開啟" inactive-text="關閉"></el-switch>
+            </el-form-item>
           </el-form>
           <div style="padding: 8px 0 4px;">
             <div :style="{ display:'inline-flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight: (foodBtnSettings.height > 0 ? foodBtnSettings.height : foodBtnSettings.minHeight) + 'px', width: foodBtnSettings.width > 0 ? foodBtnSettings.width + 'px' : '120px', border:'1.5px solid rgba(148,163,184,.25)', borderRadius:'10px', background:'#fff', padding: foodBtnSettings.paddingY + 'px ' + foodBtnSettings.paddingX + 'px' }">
@@ -1026,7 +1038,7 @@ export default {
       catOrderDragIdx: null,
       posBtnSettings: { fontSize: 18, width: 100, height: 40, rowsPerPage: 2, perRow: 8 },
       catBtnSettings: { fontSize: 13, width: 0, height: 40, padding: 20, paddingY: 0, gapX: 10, gapY: 10, cols: 4, rows: 6, shape: 'pill' },
-      foodBtnSettings: { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true },
+      foodBtnSettings: { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true, showStock: true },
       simDockPage: 0,
       dockNav: { fontSize: 18, width: 100, height: 40, bgColor: '#409eff', textColor: '#ffffff', pageNumFontSize: 12, gap: 6 },
       sidebarSettings: { fontSize: 12, width: 130 },
@@ -1111,6 +1123,7 @@ export default {
         failoverNotify: true,
         failoverTimeout: 45,
         cancelItemPrint: { kitchen: true, workstation: false },
+        cancelAllPrint: { kitchen: true },
         posFontFamily: '',
         posFontUrl: '',
         buttonOrder: JSON.parse(JSON.stringify(DEFAULT_ORDER))
@@ -1466,6 +1479,8 @@ export default {
           this.form.failoverTimeout = [30, 45, 75, 90].indexOf(Number(d.failoverTimeout)) >= 0 ? Number(d.failoverTimeout) : 45
           const cip = d.cancelItemPrint || {}
           this.form.cancelItemPrint = { kitchen: cip.kitchen !== false, workstation: cip.workstation === true }
+          const cap = d.cancelAllPrint || {}
+          this.form.cancelAllPrint = { kitchen: cap.kitchen !== false }
           this.form.posFontFamily = d.posFontFamily || ''
           this.form.posFontUrl = d.posFontUrl || ''
           const perms = d.btnPerms || DEFAULT_BTN_PERMS
@@ -1516,7 +1531,7 @@ export default {
           const cbs = d.catBtnSettings || {}
           this.catBtnSettings = { fontSize: cbs.fontSize || 13, width: cbs.width != null ? cbs.width : 0, height: cbs.height || 40, padding: cbs.padding != null ? cbs.padding : 20, paddingY: cbs.paddingY != null ? cbs.paddingY : 0, gapX: cbs.gapX != null ? cbs.gapX : 10, gapY: cbs.gapY != null ? cbs.gapY : 10, cols: cbs.cols > 0 ? cbs.cols : 4, rows: cbs.rows != null ? cbs.rows : 6, shape: cbs.shape || 'pill' }
           const fbs = d.foodBtnSettings || {}
-          this.foodBtnSettings = { cols: fbs.cols != null ? fbs.cols : 0, rows: fbs.rows != null ? fbs.rows : 0, fontSize: fbs.fontSize || 25, width: fbs.width != null ? fbs.width : 0, height: fbs.height != null ? fbs.height : 0, minHeight: fbs.minHeight || 88, imageSize: fbs.imageSize || 40, paddingX: fbs.paddingX != null ? fbs.paddingX : 3, paddingY: fbs.paddingY != null ? fbs.paddingY : 6, gapX: fbs.gapX != null ? fbs.gapX : 6, gapY: fbs.gapY != null ? fbs.gapY : 6, showPlu: fbs.showPlu !== false, showPrice: fbs.showPrice !== false }
+          this.foodBtnSettings = { cols: fbs.cols != null ? fbs.cols : 0, rows: fbs.rows != null ? fbs.rows : 0, fontSize: fbs.fontSize || 25, width: fbs.width != null ? fbs.width : 0, height: fbs.height != null ? fbs.height : 0, minHeight: fbs.minHeight || 88, imageSize: fbs.imageSize || 40, paddingX: fbs.paddingX != null ? fbs.paddingX : 3, paddingY: fbs.paddingY != null ? fbs.paddingY : 6, gapX: fbs.gapX != null ? fbs.gapX : 6, gapY: fbs.gapY != null ? fbs.gapY : 6, showPlu: fbs.showPlu !== false, showPrice: fbs.showPrice !== false, showStock: fbs.showStock !== false }
           const dn = d.dockNav || {}
           this.dockNav.fontSize = dn.fontSize || 18
           this.dockNav.width = dn.width || 100
@@ -1646,7 +1661,7 @@ export default {
     },
     resetCatFoodBtnSettings () {
       this.catBtnSettings = { fontSize: 13, width: 0, height: 40, padding: 20, paddingY: 0, gapX: 10, gapY: 10, cols: 4, rows: 6, shape: 'pill' }
-      this.foodBtnSettings = { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true }
+      this.foodBtnSettings = { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true, showStock: true }
     },
     resetCardDisplay () {
       this.cardDisplay = JSON.parse(JSON.stringify(DEFAULT_CARD_DISPLAY))
@@ -1964,7 +1979,7 @@ export default {
         posBtnSettings: { fontSize: this.posBtnSettings.fontSize, width: this.posBtnSettings.width, height: this.posBtnSettings.height || 40, rowsPerPage: this.posBtnSettings.rowsPerPage || 2, perRow: this.posBtnSettings.perRow || 8 },
         catBtnSettings: { fontSize: this.catBtnSettings.fontSize, width: this.catBtnSettings.width, height: this.catBtnSettings.height, padding: this.catBtnSettings.padding, paddingY: this.catBtnSettings.paddingY, gapX: this.catBtnSettings.gapX, gapY: this.catBtnSettings.gapY, cols: this.catBtnSettings.cols || 4, rows: this.catBtnSettings.rows != null ? this.catBtnSettings.rows : 6, shape: this.catBtnSettings.shape || 'pill' },
         categoryOrder: this.categoryOrderList.map(c => ({ id: c.id, visible: c.visible !== false, label: c.label || '', page: Number(c.page) || 0, fontSize: Number(c.fontSize) || 0, width: Number(c.width) || 0, height: Number(c.height) || 0 })),
-        foodBtnSettings: { cols: this.foodBtnSettings.cols, rows: this.foodBtnSettings.rows, fontSize: this.foodBtnSettings.fontSize, width: this.foodBtnSettings.width, height: this.foodBtnSettings.height, minHeight: this.foodBtnSettings.minHeight, imageSize: this.foodBtnSettings.imageSize, paddingX: this.foodBtnSettings.paddingX, paddingY: this.foodBtnSettings.paddingY, gapX: this.foodBtnSettings.gapX, gapY: this.foodBtnSettings.gapY, showPlu: this.foodBtnSettings.showPlu, showPrice: this.foodBtnSettings.showPrice },
+        foodBtnSettings: { cols: this.foodBtnSettings.cols, rows: this.foodBtnSettings.rows, fontSize: this.foodBtnSettings.fontSize, width: this.foodBtnSettings.width, height: this.foodBtnSettings.height, minHeight: this.foodBtnSettings.minHeight, imageSize: this.foodBtnSettings.imageSize, paddingX: this.foodBtnSettings.paddingX, paddingY: this.foodBtnSettings.paddingY, gapX: this.foodBtnSettings.gapX, gapY: this.foodBtnSettings.gapY, showPlu: this.foodBtnSettings.showPlu, showPrice: this.foodBtnSettings.showPrice, showStock: this.foodBtnSettings.showStock },
         dockNav: { fontSize: this.dockNav.fontSize, width: this.dockNav.width, height: this.dockNav.height, bgColor: this.dockNav.bgColor, textColor: this.dockNav.textColor, pageNumFontSize: this.dockNav.pageNumFontSize, gap: this.dockNav.gap },
         sidebarSettings: { fontSize: this.sidebarSettings.fontSize, width: this.sidebarSettings.width },
         calledTagStyle: { color: this.calledTagStyle.color, background: this.calledTagStyle.background, border: this.calledTagStyle.border },

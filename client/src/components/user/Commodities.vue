@@ -78,6 +78,7 @@ import CartControl from '@/components/user/CartControl'
 import CommodityDetail from '@/components/user/CommodityDetail'
 import ComboPicker from '@/components/user/ComboPicker'
 import { computeBundles, isEffectiveNow } from '@/utils/bundle'
+import qrCache from '@/utils/qrCache'
 export default {
   name: 'commoditiesList',
   props: ['id'],
@@ -189,10 +190,20 @@ export default {
     openCombo (food) {
       this.$refs.comboPicker.show(food.isCombo ? food : food._comboData)
     },
+    // 跟 POS 一致：改碼類別開「自動彈出」時才自動打開改碼選單
     hasMandatoryMods (food) {
       const cats = food.modCategories || []
       if (!cats.length) return false
-      return this.modCodeList.some(m => m.mandatory && cats.indexOf(m.category) >= 0)
+      const items = this.modCodeList.filter(m => cats.indexOf(m.category) >= 0)
+      if (!items.length) return false
+      return this.modCodeCategories.some(c => {
+        if (!c.mandatory || cats.indexOf(c.name) < 0) return false
+        // 有指定貨品時，只有這些貨品會自動彈出
+        if (Array.isArray(c.commodityIds) && c.commodityIds.length) {
+          return c.commodityIds.some(id => String(id) === String(food._id))
+        }
+        return true
+      })
     },
     openFoodDetail (food) {
       this.selectedFood = food
@@ -391,7 +402,9 @@ export default {
               name: item.name,
               count: item.count || 1,
               price: item.customPrice || item.price || 0,
-              mods: item.mods
+              mods: item.mods,
+              isCombo: item.isCombo,
+              contents: item.contents
             }))
             // 掃碼進入時已有品項，直接開啟「查看單據」版面
             if (autoOpen) {
@@ -405,22 +418,30 @@ export default {
         .catch(() => { this.sentItems = [] })
     },
     loadMenu () {
+      // 快取優先：二次進入先顯示上次菜單，背景刷新
+      const cached = qrCache.get('goods')
+      if (cached && cached.length) {
+        this.goods = cached
+      }
       return this.$axios.get('/api/commodity/menu', { params: { mode: '堂食', channel: 'qr' } })
         .then(res => {
-          this.goods = res.data || []
+          const commodities = res.data || []
           return this.$axios.get('/api/combo/menu', { params: { channel: 'qr' } }).then(r => {
             const combos = r.data || []
+            const goods = commodities.slice()
             // 去重：已在分類（CategoryItem）裡顯示過的套餐不再重複塞進「套餐」分類
             const existing = new Set()
-            this.goods.forEach(g => (g.foods || []).forEach(f => { if (f._isCombo) existing.add(String(f._id)) }))
+            goods.forEach(g => (g.foods || []).forEach(f => { if (f._isCombo) existing.add(String(f._id)) }))
             const extra = combos.filter(c => !existing.has(String(c._id)))
             if (extra.length) {
-              this.goods.push({
+              goods.push({
                 name: '套餐',
                 type: 999,
                 foods: extra.map(c => Object.assign({}, c, { isCombo: true }))
               })
             }
+            this.goods = goods
+            qrCache.set('goods', goods)
           })
         })
     },
@@ -629,8 +650,13 @@ export default {
         this.qrSetting.serviceChargeRate = d.serviceChargeRate || 10
       })
       .catch(() => {})
+    const cachedMods = qrCache.get('modcodes')
+    if (cachedMods && cachedMods.length) this.modCodeList = cachedMods
     const mods = this.$axios.get('/api/modcode/list', { params: { channel: 'qr' } })
-      .then(res => { this.modCodeList = res.data || [] })
+      .then(res => {
+        this.modCodeList = res.data || []
+        qrCache.set('modcodes', this.modCodeList)
+      })
       .catch(() => {})
     const modCats = this.$axios.get('/api/modcode/categories')
       .then(res => { this.modCodeCategories = res.data || [] })

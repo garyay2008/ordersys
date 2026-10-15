@@ -16,29 +16,28 @@ function emitMenuChanged () {
 router.get(
   '/all',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    BundleGroup.find()
-      .sort({ sort: 1, date: 1 })
-      .then(result => res.json(result))
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('獲取跟餐組別失敗！')
-      })
+  async (req, res) => {
+    try {
+      const result = await BundleGroup.find({}, { sort: { sort: 1, date: 1 } })
+      res.json(result)
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('獲取跟餐組別失敗！')
+    }
   }
 )
 
 // $route GET api/bundlegroup/list
 // @desc 获取所有跟餐組別（點餐端／菜單讀取，公開）
 // @access public
-router.get('/list', (req, res) => {
-  BundleGroup.find()
-    .sort({ sort: 1, date: 1 })
-    .lean()
-    .then(result => res.json(result))
-    .catch(err => {
-      console.log(err)
-      res.json([])
-    })
+router.get('/list', async (req, res) => {
+  try {
+    const result = await BundleGroup.find({}, { sort: { sort: 1, date: 1 } })
+    res.json(result)
+  } catch (err) {
+    console.log(err)
+    res.json([])
+  }
 })
 
 // $route POST api/bundlegroup/add
@@ -47,25 +46,25 @@ router.get('/list', (req, res) => {
 router.post(
   '/add',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    const name = (req.body.name || '').trim()
-    if (!name) {
-      res.status(400).send('組別名不能為空！')
-      return
-    }
-    const group = new BundleGroup({
-      name,
-      price: Number(req.body.price) || 0,
-      sort: Number(req.body.sort) || 0,
-      active: req.body.active !== false
-    })
-    group
-      .save()
-      .then(saved => { emitMenuChanged(); res.json(saved) })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('添加失敗，請重試！')
+  async (req, res) => {
+    try {
+      const name = (req.body.name || '').trim()
+      if (!name) {
+        res.status(400).send('組別名不能為空！')
+        return
+      }
+      const saved = await BundleGroup.create({
+        name,
+        price: Number(req.body.price) || 0,
+        sort: Number(req.body.sort) || 0,
+        active: req.body.active !== false
       })
+      emitMenuChanged()
+      res.json(saved)
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('添加失敗，請重試！')
+    }
   }
 )
 
@@ -75,27 +74,26 @@ router.post(
 router.post(
   '/edit',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    const _id = req.body._id
-    if (!_id) {
-      res.status(400).send('缺少組別 ID！')
-      return
+  async (req, res) => {
+    try {
+      const _id = req.body._id
+      if (!_id) {
+        res.status(400).send('缺少組別 ID！')
+        return
+      }
+      const update = {}
+      if (req.body.name !== undefined) update.name = (req.body.name || '').trim()
+      if (req.body.price !== undefined) update.price = Number(req.body.price) || 0
+      if (req.body.sort !== undefined) update.sort = Number(req.body.sort) || 0
+      if (req.body.active !== undefined) update.active = req.body.active
+      const group = await BundleGroup.findByIdAndUpdate(_id, { $set: update })
+      if (!group) { res.status(400).send('找不到該組別！'); return }
+      emitMenuChanged()
+      res.send('跟餐組別修改成功！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('修改失敗，請重試！')
     }
-    const update = {}
-    if (req.body.name !== undefined) update.name = (req.body.name || '').trim()
-    if (req.body.price !== undefined) update.price = Number(req.body.price) || 0
-    if (req.body.sort !== undefined) update.sort = Number(req.body.sort) || 0
-    if (req.body.active !== undefined) update.active = req.body.active
-    BundleGroup.findByIdAndUpdate(_id, { $set: update }, { new: true })
-      .then(group => {
-        if (!group) { res.status(400).send('找不到該組別！'); return }
-        emitMenuChanged()
-        res.send('跟餐組別修改成功！')
-      })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('修改失敗，請重試！')
-      })
   }
 )
 
@@ -153,13 +151,15 @@ router.post(
 router.post(
   '/del',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    BundleGroup.findOneAndRemove({ _id: req.body._id })
-      .then(() => { emitMenuChanged(); res.send('跟餐組別刪除成功！') })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('刪除失敗，請重試！')
-      })
+  async (req, res) => {
+    try {
+      await BundleGroup.findOneAndRemove({ _id: req.body._id })
+      emitMenuChanged()
+      res.send('跟餐組別刪除成功！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('刪除失敗，請重試！')
+    }
   }
 )
 

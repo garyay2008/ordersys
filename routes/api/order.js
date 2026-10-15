@@ -18,6 +18,11 @@ const moment = require('moment')
 const io = require('../../plugins/SocketIO').getIO()
 const { requireLevel, staffLevel } = require('../../middleware/auth')
 
+// 24 位 hex 字串即視為有效 ObjectId（PG 以 TEXT 存 _id）
+function isValidObjectId (id) {
+  return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id)
+}
+
 // 從認證上下文提取操作者（員工 no/name；管理員 account/name）
 function operatorOf (req) {
   const u = req.user
@@ -41,6 +46,9 @@ async function logAction (req, action, actionLabel, meta) {
     console.log('[AuditLog] 寫入失敗：' + e.message)
   }
 }
+
+// 工作站鎖定 TTL：超過此時長視為呆鎖，其他工作站可接管（單位：毫秒）
+const LOCK_TTL_MS = 30 * 60 * 1000
 
 // 兼容舊數據（Number）與新數據（String）的 deskNo 查詢
 function deskNoQuery (deskNo) {
@@ -136,7 +144,7 @@ async function getNextTakeawayNo () {
 
 async function cleanupExpiredZTables () {
   const startOfToday = moment().startOf('day').toDate()
-  await Table.deleteMany({ name: /^\d+Z$/, date: { $lt: startOfToday } }).exec()
+  await Table.deleteMany({ name: /^\d+Z$/, date: { $lt: startOfToday } })
 }
 
 cleanupExpiredZTables().catch(err => console.log(err))
@@ -290,8 +298,7 @@ async function applyJumpPrice (items, date, holidays, timing, rules, mode) {
     if (id) ids.push(String(id))
   }
   if (!ids.length) return 0
-  const ObjectId = require('mongoose').Types.ObjectId
-  const validIds = [...new Set(ids)].filter(id => ObjectId.isValid(id))
+  const validIds = [...new Set(ids)].filter(isValidObjectId)
   if (!validIds.length) return 0
   const commodities = await Commodity.find({ _id: { $in: validIds } }).lean().exec()
   const comMap = {}
@@ -700,9 +707,9 @@ router.post(
       // 子枱（搭枱）付款後立即刪除，釋出字母 A/B/C/D 供當日重複使用
       try {
         if (order.deskNo) {
-          const sub = await Table.findOne({ no: String(order.deskNo), shareSuffix: { $exists: true, $ne: '' } }).exec()
+          const sub = await Table.findOne({ no: String(order.deskNo), shareSuffix: { $exists: true, $ne: '' } })
           if (sub) {
-            await Table.deleteOne({ _id: sub._id }).exec()
+            await Table.findOneAndRemove({ _id: sub._id })
             if (io) io.emit('tableLayoutChanged')
           }
         }
@@ -939,16 +946,16 @@ router.post(
     try {
       const deskNo = String(req.body.deskNo)
       if (!deskNo) return res.status(400).send('請指定枱號！')
-      const physical = await Table.findOne({ no: deskNo }).exec()
+      const physical = await Table.findOne({ no: deskNo })
       if (!physical) return res.status(400).send('找不到該枱！')
       if (physical.shareSuffix) return res.status(400).send('只能在實體枱上搭枱！')
-      const existingLinks = await Table.find({ physicalNo: deskNo, no: { $ne: deskNo } }).exec()
+      const existingLinks = await Table.find({ physicalNo: deskNo, no: { $ne: deskNo } })
       const suffixes = ['A', 'B', 'C', 'D']
       const usedSuffixes = existingLinks.map(t => t.shareSuffix).filter(Boolean)
       const nextSuffix = suffixes.find(s => usedSuffixes.indexOf(s) < 0)
       if (!nextSuffix) return res.status(400).send('此枱已滿 4 組搭枱！')
       const newNo = deskNo + nextSuffix
-      const exist = await Table.findOne({ no: newNo }).exec()
+      const exist = await Table.findOne({ no: newNo })
       if (exist) return res.status(400).send('該搭枱號已存在！')
       const newTable = await Table.create({
         no: newNo,
@@ -1026,6 +1033,35 @@ router.post(
       order.voidBy = op.staffName || op.staffNo || ''
       order.state = 2
       await order.save()
+      // 整單取消自動印單：收銀機（收據印表機）固定出單，廚房出單依 PosSetting.cancelAllPrint.kitchen 開關
+      try {
+        const printerSetting = await Printer.findOne().exec()
+        if (printerSetting) {
+          const posSetting = await PosSetting.findOne().lean().exec()
+          const cancelAllPrint = (posSetting && posSetting.cancelAllPrint) || {}
+          const kitchenOn = cancelAllPrint.kitchen !== false
+          const ticketOrder = order.toObject()
+          const ticketOpts = {
+            order: ticketOrder,
+            reason: order.voidReason || '',
+            waiter: order.voidBy || order.waiter || ''
+          }
+          const receiptPrinter = escpos.resolveTicketPrinter(printerSetting, 'receipt')
+          if (receiptPrinter && escpos.hasTarget(receiptPrinter)) {
+            printQueue.enqueuePrint(printerSetting, receiptPrinter, escpos.buildCancelAllTicket(receiptPrinter, ticketOpts), ticketOrder)
+              .catch(err => console.log('[cancel] 收銀整單取消小票列印失敗：' + (err && err.message)))
+          }
+          if (kitchenOn) {
+            const kitchenPrinter = escpos.resolveTicketPrinter(printerSetting, 'kitchen') || escpos.resolvePrinter(printerSetting, 'kitchen')
+            if (kitchenPrinter && escpos.hasTarget(kitchenPrinter)) {
+              printQueue.enqueuePrint(printerSetting, kitchenPrinter, escpos.buildCancelAllTicket(kitchenPrinter, ticketOpts), ticketOrder)
+                .catch(err => console.log('[cancel] 廚房整單取消小票列印失敗：' + (err && err.message)))
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[cancel] 整單取消印單失敗：' + (e && e.message))
+      }
       if (io) io.emit('tableUpdate')
       logAction(req, 'cancel', '取消訂單', {
         deskNo: order.deskNo || '',
@@ -1214,9 +1250,8 @@ function countBundleUnits (items) {
 async function resolveOrigPrice (item) {
   if (Number(item.bundleOrigPrice) > 0) return Number(item.bundleOrigPrice)
   try {
-    const ObjectId = require('mongoose').Types.ObjectId
     const id = item.commodityId || item._id
-    if (id && ObjectId.isValid(id)) {
+    if (id && isValidObjectId(id)) {
       const com = await Commodity.findById(id).lean().exec()
       if (com && Number(com.price) > 0) return Number(com.price)
     }
@@ -1802,10 +1837,10 @@ router.post(
       if (occupied) {
         // 原桌被佔用 → 建立/取用「原桌號Z」虛擬枱
         zName = originalDeskNo + 'Z'
-        let zTable = await Table.findOne({ name: zName }).exec()
+        let zTable = await Table.findOne({ name: zName })
         if (!zTable) {
-          const original = await Table.findOne({ no: originalDeskNo }).exec()
-          const last = await Table.findOne().sort({ no: -1 }).lean().exec()
+          const original = await Table.findOne({ no: originalDeskNo })
+          const last = await Table.findOne({}, { sort: { no: -1 } })
           const lastNoNum = parseInt(last && last.no) || 0
           const deskNoNum = parseInt(originalDeskNo) || 0
           const newNo = String(lastNoNum ? lastNoNum + 1 : (deskNoNum * 100 + 1))
@@ -2024,7 +2059,16 @@ router.post(
         if (existing.source === 'pos') {
           existing.source = 'extension'
           if (terminalCode) existing.terminalCode = terminalCode
+          existing.lockedAt = new Date()
           await existing.save()
+        } else if (existing.source === 'extension') {
+          // 已有工作站鎖：同工作站續用，或鎖已過期（呆鎖）時由本工作站接管；否則維持原鎖
+          const stale = existing.lockedAt && (Date.now() - new Date(existing.lockedAt).getTime() > LOCK_TTL_MS)
+          if (stale || String(existing.terminalCode || '') === String(terminalCode || '')) {
+            if (terminalCode) existing.terminalCode = terminalCode
+            existing.lockedAt = new Date()
+            await existing.save()
+          }
         }
       } else {
         const orderNo = await genTerminalOrderNo(terminalCode, '堂食')
@@ -2038,6 +2082,7 @@ router.post(
           source: 'extension',
           zone: '堂食',
           terminalCode,
+          lockedAt: new Date(),
           businessDayId,
           date: new Date()
         })
@@ -2068,6 +2113,8 @@ router.post(
           await Order.deleteOne({ _id: o._id }).exec()
         } else {
           o.source = 'pos'
+          o.terminalCode = ''
+          o.lockedAt = null
           await o.save()
         }
       }

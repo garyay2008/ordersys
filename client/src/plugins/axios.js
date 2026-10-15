@@ -22,7 +22,11 @@ const Plugin = {}
 
 _axios.interceptors.request.use(
   function (config) {
-    if (localStorage.orderTk && !(config.headers && config.headers.Authorization)) {
+    // 廠商端：優先附加廠商 token（分機授權管理）
+    const isVendorPage = router.currentRoute.path && router.currentRoute.path.indexOf('/vendor') === 0
+    if (isVendorPage && localStorage.vendorTk && !(config.headers && config.headers.Authorization)) {
+      config.headers.Authorization = localStorage.vendorTk
+    } else if (localStorage.orderTk && !(config.headers && config.headers.Authorization)) {
       config.headers.Authorization = localStorage.orderTk
     }
     // 分機授權：附加收銀機編號標頭，供後端驗證該分機是否已授權
@@ -50,15 +54,21 @@ _axios.interceptors.response.use(
     const { status } = error.response
     if (status === 401) {
       Message.error('操作超時，請重新登錄！')
+      // 廠商端登出 → 回廠商登入頁
+      if (router.currentRoute.path && router.currentRoute.path.indexOf('/vendor') === 0) {
+        localStorage.removeItem('vendorTk')
+        router.push('/vendor')
+        return Promise.reject(error)
+      }
       localStorage.removeItem('orderTk')
       // 客人／自助／排隊等公開頁面不跳轉到管理後台登入
       const p = router.currentRoute.path
       const isPublicPage = p.indexOf('/pos') === 0 || p.indexOf('/mpos') === 0 ||
         p.indexOf('/index/') === 0 || p.indexOf('/emenu/') === 0 ||
         p.indexOf('/kiosk') === 0 || p.indexOf('/paykiosk') === 0 ||
-        p.indexOf('/queue') === 0
+        p.indexOf('/queue') === 0 || p.indexOf('/mreport') === 0
       if (!isPublicPage) {
-        router.push('/login')
+        window.location.href = '/login'
       }
     } else if (status === 402) {
       // 授權失敗：主機授權或分機授權 → 導向啟用頁

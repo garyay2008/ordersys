@@ -1,15 +1,14 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const InitSchema = new Schema({
-  admin: {
-    type: Boolean,
-    required: true
+module.exports = makeModel(
+  'inits',
+  {
+    admin: 'bool',
+    shop: 'bool'
   },
-  shop: {
-    type: Boolean,
-    required: true
+  'init',
+  {
+    admin: false,
+    shop: false
   }
-})
-
-module.exports = Init = mongoose.model('init', InitSchema)
+)

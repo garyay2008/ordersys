@@ -42,9 +42,6 @@ jobs:
       - name: Build frontend
         run: npm run build:client
 
-      - name: Download mongod
-        run: npm run download:mongod
-
       - name: Package
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

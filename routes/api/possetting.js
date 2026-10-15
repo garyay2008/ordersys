@@ -38,7 +38,7 @@ router.get('/get', (req, res) => {
         if (data.catBtnSettings.rows == null) data.catBtnSettings.rows = 6
       }
       if (!data.foodBtnSettings) {
-        data.foodBtnSettings = { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true }
+        data.foodBtnSettings = { cols: 0, rows: 0, fontSize: 25, width: 0, height: 0, minHeight: 88, imageSize: 40, paddingX: 3, paddingY: 6, gapX: 6, gapY: 6, showPlu: true, showPrice: true, showStock: true }
       } else {
         if (data.foodBtnSettings.cols == null) data.foodBtnSettings.cols = 0
         if (data.foodBtnSettings.rows == null) data.foodBtnSettings.rows = 0
@@ -53,6 +53,7 @@ router.get('/get', (req, res) => {
         if (data.foodBtnSettings.gapY == null) data.foodBtnSettings.gapY = 6
         if (data.foodBtnSettings.showPlu == null) data.foodBtnSettings.showPlu = true
         if (data.foodBtnSettings.showPrice == null) data.foodBtnSettings.showPrice = true
+        if (data.foodBtnSettings.showStock == null) data.foodBtnSettings.showStock = true
       }
       if (!data.sidebarSettings || !Object.keys(data.sidebarSettings).length) {
         data.sidebarSettings = { fontSize: 12, width: 130 }
@@ -136,6 +137,9 @@ router.get('/get', (req, res) => {
       }
       if (!data.cancelItemPrint) {
         data.cancelItemPrint = { kitchen: true, workstation: false }
+      }
+      if (!data.cancelAllPrint) {
+        data.cancelAllPrint = { kitchen: true }
       }
       if (!data.sidebarButtons || !data.sidebarButtons.length) {
         data.sidebarButtons = [

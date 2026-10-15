@@ -1,15 +1,10 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const QRCodeSchema = new Schema({
-  url: {
-    type: String,
-    required: true
+module.exports = makeModel(
+  'qrcodes',
+  {
+    url: 'text',
+    no: 'int'
   },
-  no: {
-    type: Number,
-    required: true
-  }
-})
-
-module.exports = QRCode = mongoose.model('qrcode', QRCodeSchema)
+  'qrcode'
+)

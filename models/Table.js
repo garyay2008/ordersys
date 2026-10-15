@@ -1,51 +1,30 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
 // 桌號管理
-const TableSchema = new Schema({
-  no: {
-    type: String,
-    required: true
+module.exports = makeModel(
+  'tables',
+  {
+    no: 'text',
+    name: 'text',
+    seats: 'int',
+    zone: 'text',
+    x: 'numeric',
+    y: 'numeric',
+    enabled: 'bool',
+    physicalNo: 'text',
+    shareSuffix: 'text',
+    date: 'timestamp'
   },
-  name: {
-    type: String,
-    default: ''
-  },
-  seats: {
-    type: Number,
-    default: 4
-  },
-  zone: {
-    type: String,
-    default: ''
-  },
-  x: {
-    type: Number,
-    default: null
-  },
-  y: {
-    type: Number,
-    default: null
-  },
-  enabled: {
-    type: Boolean,
-    default: true
-  },
-  physicalNo: {
-    type: String,
-    default: ''
-  },
-  shareSuffix: {
-    type: String,
-    default: ''
-  },
-  date: {
-    type: Date,
-    default: Date.now
+  'table',
+  {
+    name: '',
+    seats: 4,
+    zone: '',
+    x: null,
+    y: null,
+    enabled: true,
+    physicalNo: '',
+    shareSuffix: '',
+    date: () => new Date()
   }
-})
-
-// 枱面依桌號查詢
-TableSchema.index({ no: 1 })
-
-module.exports = Table = mongoose.model('table', TableSchema)
+)

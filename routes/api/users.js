@@ -13,45 +13,34 @@ const { requireAdmin } = require('../../middleware/auth')
 // @access public
 router.post('/init', async (req, res) => {
   try {
-    const count = await User.countDocuments().exec()
+    const count = await User.countDocuments()
     if (count !== 0) {
       res.status(400).send('系统已存在管理员，请勿重复初始化！')
       return
     }
-    let avatar = gravatar.url(req.body.email, { s: '200', r: 'pg', d: 'mm' })
-    let password = bcrypt.hashSync(req.body.password, 10)
-    const newUser = new User({
+    const avatar = gravatar.url(req.body.email, { s: '200', r: 'pg', d: 'mm' })
+    const password = bcrypt.hashSync(req.body.password, 10)
+    const user = await User.create({
       username: req.body.username,
       password,
       email: req.body.email,
       avatar
     })
-    newUser
-      .save()
-      .then(user => res.json(user))
-      .catch(err => res.send(err))
+    res.json(user)
   } catch (err) {
     console.log(err)
+    res.status(400).send('初始化失败！')
   }
-  User.countDocuments()
-    .then(user => {
-      if (user === 0) {
-      } else {
-      }
-    })
-    .catch(err => {
-      console.log('[Err] ' + err)
-    })
 })
 
 // $route POST api/users/login
 // @desc 管理员登录，返回json数据
 // @access public
 router.post('/login', async (req, res) => {
-  let username = req.body.username
-  let password = req.body.password
+  const username = req.body.username
+  const password = req.body.password
   try {
-    const user = await User.findOne({ username }).exec()
+    const user = await User.findOne({ username })
     if (!user) {
       res.status(400).send('用户名错误！')
       return
@@ -73,6 +62,7 @@ router.post('/login', async (req, res) => {
     }
   } catch (err) {
     console.log(err)
+    res.status(400).send('登录失败！')
   }
 })
 
@@ -84,7 +74,7 @@ router.get(
   passport.authenticate('jwt', { session: false }), requireAdmin,
   async (req, res) => {
     try {
-      const user = await User.findOne({ _id: req.user.id }).exec()
+      const user = await User.findOne({ _id: req.user.id })
       const rules = {
         id: user.id,
         username: user.username,
@@ -97,6 +87,7 @@ router.get(
       })
     } catch (err) {
       console.log(err)
+      res.status(400).send('获取token失败！')
     }
   }
 )
@@ -108,9 +99,9 @@ router.post(
   '/chinfo',
   passport.authenticate('jwt', { session: false }), requireAdmin,
   async (req, res) => {
-    let chUser = req.body
+    const chUser = req.body
     try {
-      const user = await User.findById({ _id: chUser.id }).exec()
+      const user = await User.findById(chUser.id)
       if (!user) {
         res.status(400).send('用户不存在！')
         return
@@ -123,13 +114,8 @@ router.post(
         const isMatch = bcrypt.compareSync(chUser.password, user.password)
         if (isMatch) {
           const pwd = bcrypt.hashSync(chUser.newpassword, 10)
-          const update = await User.findOneAndUpdate(
-            { _id: chUser.id },
-            { $set: { password: pwd } }
-          ).exec()
-          if (update) {
-            res.send('密码修改成功,请重新登录！')
-          }
+          await User.updateOne({ _id: chUser.id }, { $set: { password: pwd } })
+          res.send('密码修改成功,请重新登录！')
         } else {
           res.status(400).send('旧密码错误！')
         }
@@ -139,7 +125,7 @@ router.post(
           r: 'pg',
           d: 'mm'
         })
-        const update = await User.findOneAndUpdate(
+        await User.updateOne(
           { _id: chUser.id },
           {
             $set: {
@@ -148,13 +134,12 @@ router.post(
               avatar: chUser.avatar
             }
           }
-        ).exec()
-        if (update) {
-          res.send('信息修改成功！')
-        }
+        )
+        res.send('信息修改成功！')
       }
     } catch (err) {
       console.log(err)
+      res.status(400).send('修改失败！')
     }
   }
 )

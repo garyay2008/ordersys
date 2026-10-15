@@ -6,7 +6,6 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build:client": "cd client && npm run build",
-    "download:mongod": "node tools/download-mongod.js",
     "electron:dev": "electron .",
     "dist": "npm run build:client && electron-builder",
     "dist:mac": "npm run build:client && electron-builder --mac",
@@ -46,6 +45,7 @@
     "opencc-js": "^1.4.2",
     "passport": "^0.6.0",
     "passport-jwt": "^4.0.0",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3"
   },

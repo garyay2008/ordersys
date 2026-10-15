@@ -2,10 +2,8 @@
 require('./utils/logBuffer')
 const express = require('express')
 const app = express()
-const mongoose = require('mongoose')
 const passport = require('passport')
 const path = require('path')
-const compression = require('compression')
 
 // 設置WebSocket
 const http = require('http').Server(app)
@@ -17,65 +15,59 @@ const printDashboard = require('./plugins/printDashboard')
 app.use(express.urlencoded({ extended: false }))
 app.use(express.json())
 
-// gzip 壓縮（JS/CSS/JSON 等靜態與 API 回應），加快掃碼點餐載入速度
-app.use(compression())
+// Brotli（優先）/ gzip 壓縮（JS/CSS/JSON 等靜態與 API 回應），加快掃碼點餐與登入頁載入速度
+app.use(require('./middleware/compress')())
 
-// 連接MongoDB
+// 連接 PostgreSQL
 const config = require('./config/config')
-const db = config.mongoURI
-const isConnected = mongoose
-  .connect(db)
-  .then(() => {
-    console.log('[Log] The database is connected.')
-    // 確保索引建立（production 環境關閉 autoIndex，需手動建立）
-    Promise.all([
-      require('./models/Order').createIndexes(),
-      require('./models/Staff').createIndexes(),
-      require('./models/Table').createIndexes(),
-      require('./models/Commodity').createIndexes(),
-      require('./models/AuditLog').createIndexes(),
-      require('./models/TerminalLicense').createIndexes()
-    ]).then(() => console.log('[Log] Indexes ensured.')).catch(err => console.log('[Log] Index creation failed: ' + err.message))
-    // 遷移：自動補齊 Commodity.categoryId（舊資料只有 category 字串）
-    const Commodity = require('./models/Commodity')
-    const Category = require('./models/Category')
-    Category.find().lean().exec().then(cats => {
-      const nameToId = {}
-      cats.forEach(c => { nameToId[c.cName] = c._id })
-      return Commodity.find({ categoryId: { $exists: false } }).lean().exec().then(items => {
-        if (!items.length) return
-        console.log('[Migration] 補齊 ' + items.length + ' 筆商品的 categoryId')
-        return Promise.all(items.map(it => {
-          const id = nameToId[it.category]
-          if (!id) return null
-          return Commodity.updateOne({ _id: it._id }, { $set: { categoryId: id } }).exec()
-        }))
-      })
-    }).catch(err => console.log('[Migration] categoryId 補齊失敗：' + err.message))
-    // Seed 預設 Amounts
-    const Amount = require('./models/Amount')
-    const defaults = [
-      { key: 'payMethod', value: '現金' },
-      { key: 'payMethod', value: 'Visa' },
-      { key: 'payMethod', value: 'Master' },
-      { key: 'payMethod', value: '銀聯' },
-      { key: 'payMethod', value: '中銀' },
-      { key: 'payMethod', value: '支付寶' },
-      { key: 'payMethod', value: '微信支付' },
-      { key: 'payMethod', value: '八達通' },
-      { key: 'payType', value: '堂食' },
-      { key: 'payType', value: '外賣自取' }
-    ]
-    Promise.all(defaults.map(d =>
-      Amount.findOneAndUpdate({ key: d.key, value: d.value }, d, { upsert: true, new: true, setDefaultsOnInsert: true }).exec()
-    )).catch(err => console.log('[Seed] Amounts 預設值寫入失敗：' + err.message))
-    // 開機預先註冊打印機佇列（Bull Board 儀表板開機即顯示各台狀態）
-    printQueue.warmup()
-    // 預先載入列印相關 PosSetting 快取（外賣枱枱號範圍等同步票據欄位）
-    require('./models/PosSetting').findOne().lean().exec()
-      .then(ps => { if (ps) require('./plugins/Printer').setPosSettingCache(ps) })
-      .catch(() => {})
-  })
+const pg = require('./db/pg')
+
+const isConnected = pg.query('SELECT 1').then(() => {
+  console.log('[Log] The database is connected.')
+  // 遷移：自動補齊 Commodity.categoryId（舊資料只有 category 字串）
+  const Commodity = require('./models/Commodity')
+  const Category = require('./models/Category')
+  Category.find().then(cats => {
+    const nameToId = {}
+    cats.forEach(c => { nameToId[c.cName] = c._id })
+    return Commodity.find({ categoryId: { $exists: false } }).then(items => {
+      if (!items.length) return
+      console.log('[Migration] 補齊 ' + items.length + ' 筆商品的 categoryId')
+      return Promise.all(items.map(it => {
+        const id = nameToId[it.category]
+        if (!id) return null
+        return Commodity.updateOne({ _id: it._id }, { $set: { categoryId: id } })
+      }))
+    })
+  }).catch(err => console.log('[Migration] categoryId 補齊失敗：' + err.message))
+  // 遷移：補齊 orders.locked_at 欄位（工作站鎖定時間，供鎖定 TTL 判斷呆鎖）
+  pg.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS locked_at timestamptz').catch(err =>
+    console.log('[Migration] orders.locked_at 補齊失敗：' + err.message))
+
+  // Seed 預設 Amounts
+  const Amount = require('./models/Amount')
+  const defaults = [
+    { key: 'payMethod', value: '現金' },
+    { key: 'payMethod', value: 'Visa' },
+    { key: 'payMethod', value: 'Master' },
+    { key: 'payMethod', value: '銀聯' },
+    { key: 'payMethod', value: '中銀' },
+    { key: 'payMethod', value: '支付寶' },
+    { key: 'payMethod', value: '微信支付' },
+    { key: 'payMethod', value: '八達通' },
+    { key: 'payType', value: '堂食' },
+    { key: 'payType', value: '外賣自取' }
+  ]
+  Promise.all(defaults.map(d =>
+    Amount.findOneAndUpdate({ key: d.key, value: d.value }, { $set: d }, { upsert: true })
+  )).catch(err => console.log('[Seed] Amounts 預設值寫入失敗：' + err.message))
+  // 開機預先註冊打印機佇列（Bull Board 儀表板開機即顯示各台狀態）
+  printQueue.warmup()
+  // 預先載入列印相關 PosSetting 快取（外賣枱枱號範圍等同步票據欄位）
+  require('./models/PosSetting').findOne()
+    .then(ps => { if (ps) require('./plugins/Printer').setPosSettingCache(ps) })
+    .catch(() => {})
+})
 
 // 設置靜態資源服務器
 app.use(express.static(config.publicDir))
@@ -93,12 +85,13 @@ app.get('/api/license/status', (req, res) => {
   res.json(license.getLicenseStatus())
 })
 app.use('/api/license', require('./routes/api/license'))
+app.use('/api/vendor', require('./routes/api/vendor'))
 
 // 授權強制驗證：設定 LICENSE_ENFORCE=1 時，無效/過期授權會擋下所有 /api 請求
 if (process.env.LICENSE_ENFORCE === '1') {
   app.use('/api', (req, res, next) => {
-    // 授權相關端點（狀態/機器碼/啟用）不受強制驗證攔截，讓客戶可自行啟用授權
-    if (req.path.indexOf('/license') === 0) return next()
+    // 授權相關端點（狀態/機器碼/啟用）與廠商端點不受強制驗證攔截，讓客戶可自行啟用授權、廠商可登入管理
+    if (req.path.indexOf('/license') === 0 || req.path.indexOf('/vendor') === 0) return next()
     const status = license.getLicenseStatus()
     if (status.valid) return next()
     return res.status(402).json({ msg: '授權無效或已過期', code: status.reason })
@@ -109,12 +102,13 @@ if (process.env.LICENSE_ENFORCE === '1') {
   app.use('/api', async (req, res, next) => {
     const terminalCode = (req.get('x-terminal-code') || '').trim()
     if (!terminalCode) return next()
-    // 授權啟用/查詢與收銀機清單端點豁免，供分機啟用流程使用
+    // 授權啟用/查詢、廠商端點與收銀機清單端點豁免，供分機啟用流程使用
     if (req.path.indexOf('/license') === 0 ||
+        req.path.indexOf('/vendor') === 0 ||
         req.path === '/posterminal/all' ||
         req.path === '/posterminal/enabled') return next()
     try {
-      const doc = await TerminalLicense.findOne({ code: terminalCode }).lean().exec()
+      const doc = await TerminalLicense.findOne({ code: terminalCode })
       if (doc && license.checkLicenseForId(doc.key, terminalCode).valid) return next()
     } catch (e) { /* 查無或錯誤皆視為未授權 */ }
     return res.status(402).json({ msg: '分機未授權或授權已過期', code: 'TERMINAL_UNLICENSED' })
@@ -152,15 +146,23 @@ app.use('/api/clock', require('./routes/api/clock'))
 app.use('/api/queue', require('./routes/api/queue'))
 app.use('/api/hold', require('./routes/api/hold'))
 app.use('/api/systemmaint', require('./routes/api/systemmaint'))
+app.use('/api/mreport', require('./routes/api/mreport'))
 
 // Bull Board 列印佇列儀表板（Basic Auth 保護）
 app.use('/admin/queues', printDashboard.basicAuth, printDashboard.router)
+
+// 登入頁為獨立 entry（login.html）：根路徑與 /login 直接回傳輕量登入頁。
+// 需放在 client/dist 靜態服務之前，否則 express.static 會以 index.html 作為根目錄預設文件攔截「/」。
+app.get(['/', '/login'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache')
+  res.sendFile(path.join(__dirname, 'client/dist/login.html'))
+})
 
 // 生產版前端（client/dist）與 SPA history 回退
 // 帶 hash 的靜態資源（js/css/字型等）長效快取，index.html 不緩存（確保拿到最新版本）
 app.use(express.static(path.join(__dirname, 'client/dist'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('index.html')) {
+    if (filePath.endsWith('index.html') || filePath.endsWith('login.html')) {
       res.setHeader('Cache-Control', 'no-cache')
     } else {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
@@ -172,7 +174,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'))
 })
 
-// 等待 MongoDB 連線完成後再啟動 HTTP 伺服器
+// 等待 PostgreSQL 連線完成後再啟動 HTTP 伺服器
 isConnected.then(() => {
   const lic = license.getLicenseStatus()
   if (lic.valid) {
@@ -188,7 +190,7 @@ isConnected.then(() => {
     console.log(`[Log] Url:http://0.0.0.0:${PORT}`)
   })
 
-  // 優雅關閉：SIGTERM/SIGINT 先關 BullMQ worker/連線，再關 HTTP 與 MongoDB
+  // 優雅關閉：SIGTERM/SIGINT 先關 BullMQ worker/連線，再關 HTTP 與 PostgreSQL
   let shuttingDown = false
   const shutdown = (signal) => {
     if (shuttingDown) return
@@ -197,7 +199,7 @@ isConnected.then(() => {
     setTimeout(() => { console.error('[Log] 優雅關閉逾時，強制退出'); process.exit(1) }, 10000).unref()
     printQueue.shutdown().catch(e => console.log('[Log] 列印佇列關閉失敗：' + e.message)).finally(() => {
       server.close(() => {
-        mongoose.connection.close().finally(() => {
+        pg.pool.end().finally(() => {
           console.log('[Log] 已關閉，程序退出')
           process.exit(0)
         })
@@ -207,6 +209,6 @@ isConnected.then(() => {
   process.on('SIGTERM', () => shutdown('SIGTERM'))
   process.on('SIGINT', () => shutdown('SIGINT'))
 }).catch(err => {
-  console.error('[Log] MongoDB connection failed:', err.message)
+  console.error('[Log] PostgreSQL connection failed:', err.message)
   process.exit(1)
 })

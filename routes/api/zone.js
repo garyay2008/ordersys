@@ -12,7 +12,6 @@ router.get(
   passport.authenticate('jwt', { session: false }),
   (req, res) => {
     Zone.find()
-      .sort({ sort: 1, date: 1 })
       .then(result => res.json(result))
       .catch(err => {
         console.log(err)
@@ -26,7 +25,6 @@ router.get(
 // @access public
 router.get('/list', (req, res) => {
   Zone.find()
-    .sort({ sort: 1, date: 1 })
     .then(result => res.json(result))
     .catch(err => {
       console.log(err)
@@ -46,9 +44,7 @@ router.post(
       res.status(400).send('區域名不能為空！')
       return
     }
-    const zone = new Zone({ name, sort: req.body.sort || 0 })
-    zone
-      .save()
+    Zone.create({ name, sort: req.body.sort || 0 })
       .then(() => {
         res.send('區域添加成功！')
         try {

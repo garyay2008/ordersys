@@ -21,13 +21,6 @@ files:
   - fonts/**/*
   - package.json
 
-# 捆綁 MongoDB 的 mongod 二進位（由 tools/download-mongod.js 放到 mongodb/）
-extraResources:
-  - from: mongodb
-    to: mongodb
-    filter:
-      - "**/*"
-
 # 不用 asar 打包：避免 @napi-rs/canvas 原生 .node 與動態 require 路徑問題
 asar: false
 

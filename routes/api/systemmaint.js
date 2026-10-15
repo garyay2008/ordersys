@@ -1,13 +1,18 @@
 const express = require('express')
 const router = express.Router()
 const passport = require('passport')
-const mongoose = require('mongoose')
 const formidable = require('formidable')
 const fs = require('fs')
 const { requireLevel } = require('../../middleware/auth')
+const pg = require('../../db/pg')
+const { toSnake } = require('../../db/model')
 const Category = require('../../models/Category')
 const Commodity = require('../../models/Commodity')
 const CategoryItem = require('../../models/CategoryItem')
+const Combo = require('../../models/Combo')
+const ModCode = require('../../models/ModCode')
+const ModCodeCategory = require('../../models/ModCodeCategory')
+const Department = require('../../models/Department')
 const Printer = require('../../models/Printer')
 const PosSetting = require('../../models/PosSetting')
 
@@ -23,8 +28,51 @@ const BUSINESS_COLLECTIONS = [
   'orders', 'businessdays', 'clockrecords', 'chartsdata'
 ]
 
-function getDb () {
-  return mongoose.connection.db
+// ---- 通用 PG 資料表工具（取代 mongoose.connection.db.collection） ----
+function quoteIdent (name) {
+  return '"' + String(name).replace(/"/g, '""') + '"'
+}
+
+async function listTables () {
+  const rows = await pg.query(
+    "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+  )
+  return rows.map(r => r.tablename)
+}
+
+async function tableAll (table) {
+  return pg.query(`SELECT * FROM ${quoteIdent(table)}`)
+}
+
+async function tableDeleteAll (table) {
+  return pg.query(`DELETE FROM ${quoteIdent(table)} RETURNING 1`)
+}
+
+async function tableDeleteWhere (table, key, value) {
+  return pg.query(`DELETE FROM ${quoteIdent(table)} WHERE ${quoteIdent(toSnake(key))} = $1 RETURNING 1`, [value])
+}
+
+async function tableInsertOne (table, doc) {
+  if (!doc || typeof doc !== 'object') return
+  const keys = Object.keys(doc).filter(k => doc[k] !== undefined && k !== 'id')
+  if (!keys.length) return
+  const cols = keys.map(k => (k === '_id' ? '_id' : toSnake(k)))
+  const placeholders = keys.map((_, i) => '$' + (i + 1))
+  const values = keys.map(k => {
+    const v = doc[k]
+    if (v === null || v === undefined) return null
+    if (v instanceof Date) return v
+    if (typeof v === 'object') return JSON.stringify(v)
+    return v
+  })
+  await pg.query(
+    `INSERT INTO ${quoteIdent(table)} (${cols.map(quoteIdent).join(', ')}) VALUES (${placeholders.join(', ')})`,
+    values
+  )
+}
+
+async function tableInsertMany (table, docs) {
+  for (const doc of docs) await tableInsertOne(table, doc)
 }
 
 // $route GET api/systemmaint/backup
@@ -32,11 +80,10 @@ function getDb () {
 // @access private
 router.get('/backup', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
-    const collections = await db.listCollections().toArray()
+    const tables = await listTables()
     const backup = {}
-    for (const col of collections) {
-      backup[col.name] = await db.collection(col.name).find({}).toArray()
+    for (const table of tables) {
+      backup[table] = await tableAll(table)
     }
     res.setHeader('Content-Disposition', `attachment; filename="backup_${Date.now()}.json"`)
     res.setHeader('Content-Type', 'application/json')
@@ -52,10 +99,9 @@ router.get('/backup', passport.authenticate('jwt', { session: false }), requireL
 // @access private
 router.get('/exportmenu', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
     const data = {}
     for (const name of MENU_CONFIG_COLLECTIONS) {
-      data[name] = await db.collection(name).find({}).toArray()
+      data[name] = await tableAll(name)
     }
     res.setHeader('Content-Disposition', `attachment; filename="menu_${Date.now()}.json"`)
     res.setHeader('Content-Type', 'application/json')
@@ -71,21 +117,19 @@ router.get('/exportmenu', passport.authenticate('jwt', { session: false }), requ
 // @access private
 router.post('/importdb', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
     const data = req.body
     if (!data || typeof data !== 'object') {
       return res.status(400).json({ msg: '無效的匯入資料' })
     }
-    const collections = await db.listCollections().toArray()
-    const existingNames = collections.map(c => c.name)
+    const tables = await listTables()
     let count = 0
     for (const [name, docs] of Object.entries(data)) {
       if (!Array.isArray(docs)) continue
-      if (existingNames.includes(name)) {
-        await db.collection(name).deleteMany({})
+      if (tables.includes(name)) {
+        await tableDeleteAll(name)
       }
       if (docs.length) {
-        await db.collection(name).insertMany(docs)
+        await tableInsertMany(name, docs)
       }
       count += docs.length
     }
@@ -101,7 +145,6 @@ router.post('/importdb', passport.authenticate('jwt', { session: false }), requi
 // @access private
 router.post('/importmenu', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
     const data = req.body
     if (!data || typeof data !== 'object') {
       return res.status(400).json({ msg: '無效的匯入資料' })
@@ -109,9 +152,9 @@ router.post('/importmenu', passport.authenticate('jwt', { session: false }), req
     let count = 0
     for (const name of MENU_CONFIG_COLLECTIONS) {
       if (!data[name] || !Array.isArray(data[name])) continue
-      await db.collection(name).deleteMany({})
+      await tableDeleteAll(name)
       if (data[name].length) {
-        await db.collection(name).insertMany(data[name])
+        await tableInsertMany(name, data[name])
       }
       count += data[name].length
     }
@@ -127,11 +170,12 @@ router.post('/importmenu', passport.authenticate('jwt', { session: false }), req
 // @access private
 router.post('/clearbusinessdata', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
     const result = {}
+    const existing = await listTables()
     for (const name of BUSINESS_COLLECTIONS) {
-      const r = await db.collection(name).deleteMany({})
-      result[name] = r.deletedCount
+      if (existing.indexOf(name) < 0) continue
+      const r = await tableDeleteAll(name)
+      result[name] = r.length
     }
     const total = Object.values(result).reduce((a, b) => a + b, 0)
     res.json({ msg: `營業數據清除成功！共刪除 ${total} 筆資料`, detail: result })
@@ -165,12 +209,11 @@ router.post('/logs/clear', passport.authenticate('jwt', { session: false }), req
 // @access private
 router.post('/clearcombos', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
-    const db = getDb()
-    const combos = await db.collection('combos').deleteMany({})
-    const links = await db.collection('categoryitems').deleteMany({ targetType: 'combo' })
+    const combos = await tableDeleteAll('combos')
+    const links = await tableDeleteWhere('categoryitems', 'targetType', 'combo')
     res.json({
-      msg: `套餐清除成功！共刪除 ${combos.deletedCount} 個套餐、${links.deletedCount} 筆關聯`,
-      detail: { combos: combos.deletedCount, links: links.deletedCount }
+      msg: `套餐清除成功！共刪除 ${combos.length} 個套餐、${links.length} 筆關聯`,
+      detail: { combos: combos.length, links: links.length }
     })
   } catch (err) {
     console.error('[SystemMaint] clear combos error:', err)
@@ -283,7 +326,7 @@ async function importIsm (xmlMap, options = {}) {
     if (r.lookup_type === '2') { modGroupHeader[r.lookup_id] = r; continue }
     if (r.lookup_type !== '1') continue
     const doc = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: pg.newId(),
       code: r.lookup_id,
       cName: r.name1 || r.lookup_id,
       no: catNo++,
@@ -406,7 +449,7 @@ async function importIsm (xmlMap, options = {}) {
     }
     const name = r.pos_desc1 || r.desc1 || r.item_code
     if (!name) { result.skipped++; continue }
-    const _id = new mongoose.Types.ObjectId()
+    const _id = pg.newId()
     itemMap[r.item_code] = _id
     itemDept[r.item_code] = r.dept_id || ''
     const stn = itemStation[r.item_code] || ''
@@ -456,7 +499,7 @@ async function importIsm (xmlMap, options = {}) {
       if (itemMap[lid]) {
         comboTarget[lid] = { targetId: itemMap[lid], targetType: 'commodity' }
       } else {
-        const _id = new mongoose.Types.ObjectId()
+        const _id = pg.newId()
         comboTarget[lid] = { targetId: _id, targetType: 'commodity' }
         comDocs.push({
           _id,
@@ -511,7 +554,7 @@ async function importIsm (xmlMap, options = {}) {
         items: childItems
       })
     }
-    const _id = new mongoose.Types.ObjectId()
+    const _id = pg.newId()
     comboTarget[lid] = { targetId: _id, targetType: 'combo' }
     comboDocs.push({
       _id,
@@ -532,7 +575,7 @@ async function importIsm (xmlMap, options = {}) {
   let modGroupNo = 1
   for (const lid of modGroupUsed) {
     const gh = modGroupHeader[lid] || {}
-    const _id = new mongoose.Types.ObjectId()
+    const _id = pg.newId()
     modGroupIdByLookup[lid] = _id
     modGroupDocs.push({
       _id,
@@ -548,7 +591,7 @@ async function importIsm (xmlMap, options = {}) {
   const needFallback = modDocs.some(m => m.category === '改碼') || comDocs.some(c => (c.modCategories || []).indexOf('改碼') >= 0)
   let fallbackModCatId = null
   if (needFallback) {
-    fallbackModCatId = new mongoose.Types.ObjectId()
+    fallbackModCatId = pg.newId()
     modGroupDocs.push({ _id: fallbackModCatId, name: '改碼', code: '', sort: 0, date: new Date() })
   }
   const modCatLinkDocs = []
@@ -656,21 +699,20 @@ async function importIsm (xmlMap, options = {}) {
   }
 
   // 10. 寫入資料庫（先清空菜單核心集合）
-  const db = getDb()
-  await db.collection('categories').deleteMany({})
-  await db.collection('categoryitems').deleteMany({})
-  await db.collection('commodities').deleteMany({})
-  await db.collection('combos').deleteMany({})
-  await db.collection('modcodes').deleteMany({})
-  await db.collection('modcodecategories').deleteMany({})
-  await db.collection('departments').deleteMany({})
-  if (deptDocs.length) await db.collection('departments').insertMany(deptDocs)
-  if (catDocs.length) await db.collection('categories').insertMany(catDocs)
-  if (comDocs.length) await db.collection('commodities').insertMany(comDocs)
-  if (dedupedLinks.length) await db.collection('categoryitems').insertMany(dedupedLinks)
-  if (comboDocs.length) await db.collection('combos').insertMany(comboDocs)
-  if (modDocs.length) await db.collection('modcodes').insertMany(modDocs)
-  if (modGroupDocs.length) await db.collection('modcodecategories').insertMany(modGroupDocs)
+  await Category.deleteMany({})
+  await CategoryItem.deleteMany({})
+  await Commodity.deleteMany({})
+  await Combo.deleteMany({})
+  await ModCode.deleteMany({})
+  await ModCodeCategory.deleteMany({})
+  await Department.deleteMany({})
+  if (deptDocs.length) await Department.insertMany(deptDocs)
+  if (catDocs.length) await Category.insertMany(catDocs)
+  if (comDocs.length) await Commodity.insertMany(comDocs)
+  if (dedupedLinks.length) await CategoryItem.insertMany(dedupedLinks)
+  if (comboDocs.length) await Combo.insertMany(comboDocs)
+  if (modDocs.length) await ModCode.insertMany(modDocs)
+  if (modGroupDocs.length) await ModCodeCategory.insertMany(modGroupDocs)
   result.categories = catDocs.length
   result.commodities = comDocs.length
   result.combos = comboDocs.length

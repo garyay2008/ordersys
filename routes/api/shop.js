@@ -10,10 +10,14 @@ const config = require('../../config/config')
 // $route GET api/shop/get
 // @desc 获取店铺信息，返回json数据
 // @access public
-router.get('/get', (req, res) => {
-  Shop.findOne().then(profiles => {
+router.get('/get', async (req, res) => {
+  try {
+    const profiles = await Shop.findOne()
     res.json(profiles)
-  })
+  } catch (err) {
+    console.log(err)
+    res.status(400).send('獲取店鋪信息失敗！')
+  }
 })
 
 // $route POST api/shop/edit
@@ -22,16 +26,15 @@ router.get('/get', (req, res) => {
 router.post(
   '/edit',
   passport.authenticate('jwt', { session: false }),
-  (req, res) => {
-    let shopInfo = req.body
-    Shop.findByIdAndUpdate(shopInfo.id, { $set: shopInfo }, { new: true })
-      .then(profiles => {
-        res.send('店铺信息修改成功！')
-      })
-      .catch(err => {
-        console.log(err)
-        res.status(400).send('店铺信息修改失败！')
-      })
+  async (req, res) => {
+    try {
+      const shopInfo = req.body
+      await Shop.findByIdAndUpdate(shopInfo.id, { $set: shopInfo })
+      res.send('店铺信息修改成功！')
+    } catch (err) {
+      console.log(err)
+      res.status(400).send('店铺信息修改失败！')
+    }
   }
 )
 
@@ -40,18 +43,16 @@ router.post(
 // @access public
 router.post('/create', async (req, res) => {
   try {
-    const count = await Shop.countDocuments().exec()
+    const count = await Shop.countDocuments()
     if (count !== 0) {
       res.status(400).send('系统已存在店铺信息，请勿重复初始化！')
       return
     }
-    let shopInfo = req.body
-    Shop.create(shopInfo, err => {
-      if (err) throw err
-      res.send('店铺信息初始化成功！')
-    })
+    await Shop.create(req.body)
+    res.send('店铺信息初始化成功！')
   } catch (err) {
     console.log(err)
+    res.status(400).send('店铺信息初始化失败！')
   }
 })
 

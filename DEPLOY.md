@@ -121,6 +121,39 @@ pm2 startup launchd
 
 ---
 
+## 4. 只有平板客戶（加小主機方案）
+
+情境：客戶**只有安卓/iOS 平板 + 一台網絡打印機**，沒有 POS 主機（PC）。平板瀏覽器不能直接連印表機 9100 埠，因此需要一台「小主機」當印表機的大腦。**本方案不改程式，列印邏輯（跳飛／格式／編碼／QR）全部保留。**
+
+### 前置：印表機
+1. 網絡打印機設**固定 IP**（例 `192.168.1.50`），跟小主機同網段。
+
+### 步驟
+
+1. **準備小主機**：迷你 PC / NUC / Raspberry Pi 4（約 HK$400–600），建議有實體網路孔。
+2. **裝環境**：依上方「Linux（Ubuntu）」一節安裝 Node.js 18 + MongoDB 7.0。
+3. **放程式 + 安裝**：
+   ```bash
+   sudo mkdir -p /opt/orderSYS && sudo chown $USER /opt/orderSYS
+   # 把 orderSYS 程式整個複製進去（或 git clone）
+   cd /opt/orderSYS
+   npm install
+   cd client && npm install && npm run build && cd ..
+   ```
+4. **啟動（常駐）**：
+   ```bash
+   sudo npm i -g pm2
+   pm2 start server.js --name orderSYS
+   pm2 save && pm2 startup
+   ```
+5. **平板連小主機**：平板、小主機、印表機**同一 WiFi/網路**，平板瀏覽器開 `http://小主機IP:3000/pos`。
+6. **後台設印表機**：登入 `/admin/printer`，印表機填 `ip: 192.168.1.50`、`port: 9100`。
+7. **驗證**：平板下一單 → 小主機出票；**拔掉外網線**測試，本機後端照印（離線可用）。
+
+> 重點：小主機 = 印表機的「大腦」，平板只是開網頁的遙控器。斷外網仍可離線列印，因為後端和印表機在同一台小主機上。
+
+---
+
 ## 重點提醒
 
 1. **資料庫備份**：定期用 `mongodump --db orderSYS --gzip --archive=/backup/orderSYS_$(date +%F).gz`，或系統內「資料庫備份」功能，另存到隨身碟/雲端。

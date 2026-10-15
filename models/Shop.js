@@ -1,27 +1,18 @@
-const mongoose = require('mongoose')
-const Schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const ShopSchema = new Schema({
-  // 分店代碼（日結報表「分店/店舖」顯示，如 001）
-  shopCode: {
-    type: String,
-    default: '001'
+// 店鋪資訊
+module.exports = makeModel(
+  'shops',
+  {
+    shopCode: 'text',
+    shopName: 'text',
+    shopIntro: 'text',
+    shopNotice: 'text',
+    shopImg: 'text'
   },
-  shopName: {
-    type: String,
-    required: true
-  },
-  shopIntro: {
-    type: String,
-    required: true
-  },
-  shopNotice: {
-    type: String,
-    required: true
-  },
-  shopImg: {
-    type: String
+  'shop',
+  {
+    shopCode: '001',
+    shopImg: ''
   }
-})
-
-module.exports = Shop = mongoose.model('shop', ShopSchema)
+)

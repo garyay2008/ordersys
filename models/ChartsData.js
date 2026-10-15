@@ -1,21 +1,15 @@
-const mongoose = require('mongoose')
-const schema = mongoose.Schema
+const { makeModel } = require('../db/model')
 
-const ChartsSchema = new schema({
-  date: {
-    type: String,
-    required: true
+module.exports = makeModel(
+  'chartsdatas',
+  {
+    date: 'text',
+    order: { type: 'int', col: 'order_count' },
+    income: 'numeric'
   },
-  order: {
-    type: Number,
-    required: true,
-    default: 0
-  },
-  income: {
-    type: Number,
-    required: true,
-    default: 0
+  'chartsdata',
+  {
+    order: 0,
+    income: 0
   }
-})
-
-module.exports = ChartsData = mongoose.model('chartsdata', ChartsSchema)
+)
