@@ -132,7 +132,13 @@ export default {
     },
     save () {
       this.loading.save = true
-      this.$axios.post('/api/centralbackup/config', this.form).then(res => {
+      const payload = Object.assign({}, this.form, {
+        url: String(this.form.url || '').trim(),
+        branchId: String(this.form.branchId || '').trim(),
+        key: String(this.form.key || '').trim(),
+        time: String(this.form.time || '').trim()
+      })
+      this.$axios.post('/api/centralbackup/config', payload).then(res => {
         this.$message.success(res.data.msg || '店舖上傳設定已儲存')
         if (res.data.config) this.form = Object.assign({}, this.form, res.data.config)
       }).catch(err => {

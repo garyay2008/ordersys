@@ -44,6 +44,14 @@ function writeJSON (file, obj) {
   }
 }
 
+function normalizeConfig (cfg) {
+  cfg.url = String(cfg.url || '').trim()
+  cfg.branchId = String(cfg.branchId || '').trim()
+  cfg.key = String(cfg.key || '').trim()
+  cfg.time = String(cfg.time || '').trim()
+  return cfg
+}
+
 function getConfig () {
   if (currentConfig) return currentConfig
   const fileCfg = readJSON(CONFIG_FILE, {})
@@ -55,11 +63,12 @@ function getConfig () {
   if (process.env.CENTRAL_UPLOAD_TIME) currentConfig.time = process.env.CENTRAL_UPLOAD_TIME
   if (process.env.CENTRAL_UPLOAD_ENABLED === '1') currentConfig.enabled = true
   if (process.env.CENTRAL_UPLOAD_ENABLED === '0') currentConfig.enabled = false
-  return currentConfig
+  return normalizeConfig(currentConfig)
 }
 
 function saveConfig (cfg) {
   currentConfig = Object.assign({}, DEFAULT_CONFIG, cfg)
+  normalizeConfig(currentConfig)
   writeJSON(CONFIG_FILE, currentConfig)
   return currentConfig
 }
