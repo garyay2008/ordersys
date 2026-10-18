@@ -17,6 +17,7 @@ const printQueue = require('../../plugins/printQueue')
 const moment = require('moment')
 const io = require('../../plugins/SocketIO').getIO()
 const { requireLevel, staffLevel } = require('../../middleware/auth')
+const bundle = require('../../plugins/bundle')
 
 // 24 位 hex 字串即視為有效 ObjectId（PG 以 TEXT 存 _id）
 function isValidObjectId (id) {
@@ -496,6 +497,14 @@ router.post('/submit', async (req, res) => {
     await normalizeOrderItems(data.order)
   }
 
+  // 權威重算撞餐跟餐價：以 MatchingRule / BundleGroup 主檔為準，覆寫前端送來的跟餐價
+  if (Array.isArray(data.order)) {
+    const bundleResult = await bundle.recomputeBundlePricing(data.order)
+    if (bundleResult.delta !== 0) {
+      data.totalPrice = Math.round(((data.totalPrice || 0) + bundleResult.delta) * 100) / 100
+    }
+  }
+
   // 為每個品項補上入單時間（供菜品明細2 顯示入單時間）與送單員工（項目明細追蹤送單來源）
   if (Array.isArray(data.order)) {
     const now = new Date()
@@ -878,6 +887,8 @@ router.post(
         const order = await Order.findOne(query).exec()
         if (!order) continue
         if (!firstOrder) firstOrder = order
+        // 送單（起菜）前防禦性校正撞餐跟餐價
+        await normalizeAndPersistBundlePricing(order)
         const items = order.order || []
         // 1) 一般品項（非套餐，或整份套餐）逐項起菜
         entry.indexes.forEach(idx => {
@@ -1093,6 +1104,10 @@ router.post(
       if (!order) {
         res.status(400).send('订单不存在！')
         return
+      }
+      // 列印前防禦性校正撞餐跟餐價（主檔已調價時，小票顯示最新跟餐價）
+      if (await normalizeAndPersistBundlePricing(order)) {
+        await order.save()
       }
       // 依 terminalCode 載入本機收銀機設定（本機收據/上菜紙/印單專屬印表機）
       let terminal = null
@@ -1311,6 +1326,20 @@ async function markUnpairedMains (items) {
     it.bundleMain = true
     deficit -= (it.count || 1)
   }
+}
+
+// 防禦性校正：列印/送單前對已存訂單重算撞餐跟餐價；價錢有變則同步總價並回傳 true（由呼叫方 save）
+async function normalizeAndPersistBundlePricing (order) {
+  if (!order || !Array.isArray(order.order)) return false
+  const hasBundle = order.order.some(it => it && it.bundlePrice)
+  if (!hasBundle) return false
+  const { items, delta } = await bundle.recomputeBundlePricing(order.order)
+  order.order = items
+  if (delta !== 0) {
+    order.totalPrice = Math.round(((order.totalPrice || 0) + delta) * 100) / 100
+  }
+  if (order.markModified) order.markModified('order')
+  return delta !== 0
 }
 
 // $route POST api/order/transfer
@@ -1723,6 +1752,10 @@ router.post(
         return
       }
       const itemName = items[idx].name || ''
+      // 保留跟餐原價（若前端未帶，則以目前價為原價），供分單一配一復原
+      if (!(Number(items[idx].bundleOrigPrice) > 0)) {
+        items[idx].bundleOrigPrice = Number(items[idx].price) || 0
+      }
       items[idx].price = Math.round(newPrice * 100) / 100
       items[idx].customPrice = 0
       items[idx].bundlePrice = true

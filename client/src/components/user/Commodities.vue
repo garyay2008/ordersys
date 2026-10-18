@@ -626,13 +626,19 @@ export default {
           if (!src) return
           const group = (combo.groups || [])[x.gi]
           const comboItem = (group && group.items) ? group.items[x.ii] : null
-          const upgrade = Number(comboItem && comboItem.upgradePrice) || 0
+          const upgrade = (x.upgradePrice !== undefined && x.upgradePrice !== null)
+            ? Number(x.upgradePrice) || 0
+            : Number(comboItem && comboItem.upgradePrice) || 0
           const copy = Object.assign({}, src, { count: x.qty || 1 })
           if (x.gi !== 0) {
-            const modsExtra = (src.mods || []).reduce((s, m) => s + (m && m.price ? Number(m.price) : 0), 0)
-            copy.price = Math.round((upgrade + modsExtra) * 100) / 100
+            // 跟餐：改收跟餐價（主食保留原價）；改碼由後端收據/印單另計，勿折入 price 以免重複計價
+            copy.bundleOrigPrice = Number(src.price) || 0
+            copy.price = upgrade
             copy.customPrice = 0
             copy.bundlePrice = true
+          } else {
+            // 主食：標記為撞餐主食，供後端一配一對照
+            copy.bundleMain = true
           }
           out.push(copy)
           consumed[x.index] = (consumed[x.index] || 0) + (x.qty || 1)
