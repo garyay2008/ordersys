@@ -12,6 +12,70 @@
         style="margin-bottom: 20px;">
       </el-alert>
 
+      <div class="maint-section" style="margin-bottom: 20px;">
+        <div class="section-header">
+          <h3 class="section-title" style="margin: 0;">備援主機狀態</h3>
+          <div class="section-actions">
+            <el-switch v-model="replAutoRefresh" active-text="自動刷新" style="margin-right: 12px;"></el-switch>
+            <el-button size="small" icon="el-icon-refresh" @click="fetchReplicationStatus" :loading="replLoading">重新整理</el-button>
+          </div>
+        </div>
+
+        <el-alert v-if="replError" :title="replError" type="error" :closable="false" show-icon style="margin-bottom: 12px;"></el-alert>
+
+        <div class="repl-grid">
+          <div class="repl-card">
+            <div class="repl-label">本機角色</div>
+            <div class="repl-value">{{ replStatus.isRecovery ? '備援主機（唯讀）' : '主機（可讀寫）' }}</div>
+          </div>
+          <div class="repl-card" v-if="!replStatus.isRecovery">
+            <div class="repl-label">已連線備援</div>
+            <div class="repl-value">{{ streamingCount }} 台</div>
+          </div>
+          <div class="repl-card" v-if="!replStatus.isRecovery && streamingCount === 0">
+            <div class="repl-label">注意</div>
+            <div class="repl-value" style="color: #e6a23c;">目前沒有備援主機連線</div>
+          </div>
+        </div>
+
+        <template v-if="!replStatus.isRecovery">
+          <el-table :data="replStatus.replicas || []" size="small" border style="margin-top: 12px;">
+            <el-table-column prop="applicationName" label="應用名稱" min-width="110"></el-table-column>
+            <el-table-column prop="clientAddr" label="備援位址" min-width="130"></el-table-column>
+            <el-table-column label="狀態" width="100">
+              <template slot-scope="scope">
+                <el-tag :type="scope.row.state === 'streaming' ? 'success' : 'danger'" size="mini">
+                  {{ scope.row.state || '—' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="syncState" label="同步模式" width="90"></el-table-column>
+            <el-table-column label="延遲" width="120">
+              <template slot-scope="scope">
+                <span v-if="scope.row.replayBytesBehind === null || scope.row.replayBytesBehind === undefined">—</span>
+                <span v-else>{{ formatBytes(scope.row.replayBytesBehind) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-table :data="replStatus.slots || []" size="small" border style="margin-top: 12px;">
+            <el-table-column prop="slotName" label="複製槽" min-width="130"></el-table-column>
+            <el-table-column label="啟用" width="80">
+              <template slot-scope="scope">
+                <el-tag :type="scope.row.active ? 'success' : 'info'" size="mini">{{ scope.row.active ? '是' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="walStatus" label="WAL 狀態" width="100"></el-table-column>
+            <el-table-column label="保留 WAL" width="120">
+              <template slot-scope="scope">{{ formatBytes(scope.row.retainedBytes) }}</template>
+            </el-table-column>
+          </el-table>
+          <p class="hint">串流複製狀態由主機端 pg_stat_replication 讀取；「延遲」為備援尚未重播的 WAL 位元組數。</p>
+        </template>
+        <template v-else>
+          <p class="hint">此節點為備援主機（唯讀），正在接收並重播主機的 WAL 資料。最後重播時間：{{ formatReplay(replStatus.lastReplay) }}</p>
+        </template>
+      </div>
+
       <el-row :gutter="20">
         <el-col :span="12">
           <div class="maint-section">
@@ -141,20 +205,37 @@ export default {
       logLimit: 500,
       autoRefresh: true,
       logLoading: false,
-      logTimer: null
+      logTimer: null,
+      replStatus: {},
+      replLoading: false,
+      replError: '',
+      replAutoRefresh: true,
+      replTimer: null
+    }
+  },
+  computed: {
+    streamingCount () {
+      return ((this.replStatus && this.replStatus.replicas) || []).filter(r => r.state === 'streaming').length
     }
   },
   mounted () {
     this.fetchLogs()
     this.startAutoRefresh()
+    this.fetchReplicationStatus()
+    this.startReplAutoRefresh()
   },
   beforeDestroy () {
     this.stopAutoRefresh()
+    this.stopReplAutoRefresh()
   },
   watch: {
     autoRefresh (val) {
       if (val) this.startAutoRefresh()
       else this.stopAutoRefresh()
+    },
+    replAutoRefresh (val) {
+      if (val) this.startReplAutoRefresh()
+      else this.stopReplAutoRefresh()
     }
   },
   methods: {
@@ -173,6 +254,49 @@ export default {
     scrollToBottom () {
       const el = this.$refs.logConsole
       if (el) el.scrollTop = el.scrollHeight
+    },
+
+    fetchReplicationStatus () {
+      this.replLoading = true
+      this.$axios.get('/api/systemmaint/replicationStatus').then(res => {
+        this.replStatus = res.data || {}
+        this.replError = ''
+      }).catch(err => {
+        this.replError = '載入備援狀態失敗：' + ((err.response && err.response.data && err.response.data.msg) || err.message)
+      }).finally(() => {
+        this.replLoading = false
+      })
+    },
+
+    startReplAutoRefresh () {
+      if (this.replTimer) return
+      this.replTimer = setInterval(() => this.fetchReplicationStatus(), 5000)
+    },
+
+    stopReplAutoRefresh () {
+      if (this.replTimer) {
+        clearInterval(this.replTimer)
+        this.replTimer = null
+      }
+    },
+
+    formatBytes (n) {
+      if (n === null || n === undefined) return '—'
+      const v = Number(n)
+      if (v === 0) return '0 B'
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
+      let i = 0
+      let x = v
+      while (x >= 1024 && i < units.length - 1) {
+        x /= 1024
+        i++
+      }
+      return x.toFixed(i === 0 ? 0 : 1) + ' ' + units[i]
+    },
+
+    formatReplay (ts) {
+      if (!ts) return '—'
+      return new Date(ts).toLocaleString('zh-HK')
     },
 
     startAutoRefresh () {
@@ -427,6 +551,39 @@ export default {
 .section-title {
   margin: 0 0 12px 0;
   font-size: 16px;
+  color: #303133;
+}
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.section-actions {
+  display: flex;
+  align-items: center;
+}
+.repl-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.repl-card {
+  flex: 1;
+  min-width: 140px;
+  padding: 12px 16px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fff;
+}
+.repl-label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 6px;
+}
+.repl-value {
+  font-size: 18px;
+  font-weight: 600;
   color: #303133;
 }
 .btn-group {

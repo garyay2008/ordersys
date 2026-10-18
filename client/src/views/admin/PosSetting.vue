@@ -376,7 +376,7 @@
       </el-row>
     </el-card>
 
-    <el-card class="box-card pos-preview-card">
+    <el-card v-if="false" class="box-card pos-preview-card">
       <div slot="header" class="clearfix">
         <i class="el-icon-monitor hd-icon"></i><span>1:1 POS 介面模擬預覽</span>
         <el-radio-group v-model="previewLayout" size="mini" style="margin-left: 16px;">

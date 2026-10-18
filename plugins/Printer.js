@@ -2415,7 +2415,7 @@ function resolveTicketPrinter (setting, type) {
     }
     return resolvePrinter(setting, 'kitchen')
   }
-  const defaultKey = (type === 'receipt' || type === 'print') ? 'cashier' : 'expeditor'
+  const defaultKey = (type === 'receipt' || type === 'print' || type === 'reprint') ? 'cashier' : 'expeditor'
   const target = targets[type]
   if (target && target !== 'auto') {
     const p = resolvePrinter(setting, target)

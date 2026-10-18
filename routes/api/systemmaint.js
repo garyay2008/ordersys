@@ -193,6 +193,62 @@ router.post('/clearbusinessdata', passport.authenticate('jwt', { session: false 
   }
 })
 
+// $route GET api/systemmaint/replicationStatus
+// @desc 備援主機串流複製狀態（唯讀，需 ordersys 具 pg_read_all_stats 權限）
+// @access private
+router.get('/replicationStatus', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
+  try {
+    const [recoveryRows, replicaRows, slotRows, replayRows] = await Promise.all([
+      pg.query('SELECT pg_is_in_recovery() AS is_recovery'),
+      pg.query(`
+        SELECT application_name,
+               client_addr::text AS client_addr,
+               state,
+               sync_state,
+               sent_lsn::text AS sent_lsn,
+               replay_lsn::text AS replay_lsn,
+               pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) AS replay_bytes_behind,
+               CASE WHEN replay_lag IS NULL THEN NULL ELSE replay_lag::text END AS replay_lag
+        FROM pg_stat_replication
+        ORDER BY application_name
+      `),
+      pg.query(`
+        SELECT slot_name,
+               active,
+               wal_status,
+               pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS retained_bytes
+        FROM pg_replication_slots
+        ORDER BY slot_name
+      `),
+      pg.query('SELECT pg_last_xact_replay_timestamp() AS last_replay')
+    ])
+    res.json({
+      isRecovery: !!(recoveryRows[0] && recoveryRows[0].is_recovery),
+      replicas: replicaRows.map(r => ({
+        applicationName: r.application_name,
+        clientAddr: r.client_addr,
+        state: r.state,
+        syncState: r.sync_state,
+        sentLsn: r.sent_lsn,
+        replayLsn: r.replay_lsn,
+        replayBytesBehind: r.replay_bytes_behind === null ? null : Number(r.replay_bytes_behind),
+        replayLag: r.replay_lag
+      })),
+      slots: slotRows.map(s => ({
+        slotName: s.slot_name,
+        active: !!s.active,
+        walStatus: s.wal_status,
+        retainedBytes: s.retained_bytes === null ? null : Number(s.retained_bytes)
+      })),
+      lastReplay: (replayRows[0] && replayRows[0].last_replay) || null,
+      checkedAt: new Date().toISOString()
+    })
+  } catch (err) {
+    console.error('[SystemMaint] replication status error:', err)
+    res.status(500).json({ msg: '讀取備援狀態失敗：' + err.message })
+  }
+})
+
 // $route GET api/systemmaint/logs
 // @desc 系統日誌（記憶體環形緩衝，等同 docker logs）
 // @access private

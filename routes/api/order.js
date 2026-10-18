@@ -1007,7 +1007,7 @@ router.post(
       if (!printerSetting) return res.status(400).send('請先設置打印機！')
       const reprintOrder = Object.assign({}, order.toObject(), { _printLabel: '【重印】' })
       try {
-        const receipt = escpos.resolveTicketPrinter(printerSetting, 'receipt')
+        const receipt = escpos.resolveTicketPrinter(printerSetting, 'reprint')
         if (receipt && receipt.ip) {
           await printQueue.enqueuePrint(printerSetting, receipt, await escpos.buildReceipt(receipt, reprintOrder, { invoiceNo: order.orderNo, payMethod: order.payMethod }), reprintOrder)
         }
