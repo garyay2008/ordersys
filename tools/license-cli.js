@@ -37,6 +37,7 @@ if (cmd === 'generate' || cmd === 'gen') {
     features: (args.features || '').split(',').map(s => s.trim()).filter(Boolean)
   }
   if (args.exp) payload.exp = args.exp
+  if (args.machineid) payload.machineId = args.machineid
   if (!payload.mid) {
     console.error('缺少 --mid=機器識別碼（可先執行 `node tools/license-cli.js machineid` 取得）')
     process.exit(1)
@@ -48,10 +49,11 @@ if (cmd === 'generate' || cmd === 'gen') {
 console.log('用法：')
 console.log('  node tools/license-cli.js machineid')
 console.log('  node tools/license-cli.js generate --mid=XXXX --exp=2027-12-31 --customer=客戶名 --edition=full')
-console.log('  node tools/license-cli.js generate --mid=POS-01 --edition=terminal   （分機授權，mid=收銀機編號）')
+console.log('  node tools/license-cli.js generate --mid=POS-01 --edition=terminal --machineid=XXXX   （分機授權，mid=收銀機編號，綁定主機 machine_id）')
 console.log('')
 console.log('參數：')
 console.log('  --mid       機器識別碼（主機）或收銀機編號（分機，如 POS-01 / KIOSK-01）')
+console.log('  --machineid 主機 machine_id（分機授權綁定用，使授權碼跨餐廳唯一，選填）')
 console.log('  --exp       到期日 YYYY-MM-DD（可省略＝永久授權）')
 console.log('  --customer  客戶名稱（選填，僅供辨識）')
 console.log('  --edition   版本名稱（選填，預設 full；分機授權用 terminal）')

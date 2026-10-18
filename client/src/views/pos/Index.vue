@@ -26,7 +26,7 @@
           <span v-else class="login-terminal login-terminal-empty"></span>
           <div class="login-topbar-right">
             <span class="login-clock"><i class="el-icon-time"></i> {{ currentTime }}</span>
-            <el-tooltip v-if="isElectron" content="連線設定" placement="bottom">
+            <el-tooltip content="連線設定" placement="bottom">
               <span class="login-conn-setting" @click="openConnSettings"><i class="el-icon-setting"></i></span>
             </el-tooltip>
           </div>
@@ -763,8 +763,8 @@
       </div>
     </el-dialog>
 
-    <!-- 連線設定（僅桌面版 Electron，經 preload 讀寫 app-config.json） -->
-    <el-dialog v-if="isElectron" title="連線設定" :visible.sync="connDialog.show" width="420px" custom-class="pos-dialog" append-to-body>
+    <!-- 連線設定（桌面版 Electron 經 preload 讀寫 app-config.json；瀏覽器存 localStorage 並重新導向） -->
+    <el-dialog title="連線設定" :visible.sync="connDialog.show" width="420px" custom-class="pos-dialog" append-to-body>
       <el-form label-width="110px" size="small" style="margin-bottom:4px;">
         <el-form-item label="伺服器 IP">
           <el-input v-model="connDialog.host" placeholder="127.0.0.1"></el-input>
@@ -772,11 +772,16 @@
         <el-form-item label="連接埠">
           <el-input v-model="connDialog.port" placeholder="3000"></el-input>
         </el-form-item>
-        <el-form-item label="PostgreSQL">
+        <el-form-item v-if="isElectron" label="PostgreSQL">
           <el-input v-model="connDialog.pgConn" placeholder="postgres://user:pass@127.0.0.1:5432/ordersys"></el-input>
         </el-form-item>
+        <el-form-item label="分機編號">
+          <el-select v-model="connDialog.stationId" filterable clearable placeholder="選擇分機" style="width:100%">
+            <el-option v-for="t in terminals" :key="t.code" :label="t.name ? (t.code + ' - ' + t.name) : t.code" :value="t.code"></el-option>
+          </el-select>
+        </el-form-item>
       </el-form>
-      <p style="margin:0; color:#909399; font-size:12px; line-height:1.6;">儲存後會自動重新載入。伺服器 IP 預設 127.0.0.1（本機後端）；PostgreSQL 留空則沿用程式預設連線。</p>
+      <p style="margin:0; color:#909399; font-size:12px; line-height:1.6;">儲存後會自動重新載入。<template v-if="isElectron">伺服器 IP 預設 127.0.0.1（本機後端）；PostgreSQL 留空則沿用程式預設連線；</template><template v-else>瀏覽器會連線到所填的伺服器 IP 與連接埠。</template>分機編號留空則沿用上次選擇。</p>
       <div slot="footer">
         <el-button @click="connDialog.show = false">取 消</el-button>
         <el-button type="primary" :loading="connDialog.saving" @click="saveConnSettings">儲 存</el-button>
@@ -928,7 +933,7 @@ export default {
     return {
       loggedIn: false,
       isElectron: typeof window !== 'undefined' && !!window.appConfig,
-      connDialog: { show: false, host: '127.0.0.1', port: 3000, pgConn: '', saving: false },
+      connDialog: { show: false, host: '127.0.0.1', port: 3000, pgConn: '', stationId: '', saving: false },
       currentTime: '',
       timeTimer: null,
       loginNo: '',
@@ -2355,23 +2360,38 @@ export default {
       this.clockDialog = { show: true, mode: 'out', openingCash: '', closingCash: '', remark: '', staffNo: '', loading: false }
     },
     async openConnSettings () {
-      this.connDialog = { show: true, host: '127.0.0.1', port: 3000, pgConn: '', saving: false }
-      if (!window.appConfig) return
+      this.connDialog = { show: true, host: '127.0.0.1', port: 3000, pgConn: '', stationId: '', saving: false }
+      // 瀏覽器：以目前連線主機/連接埠與已選分機作為初始值
+      if (!window.appConfig) {
+        this.connDialog.host = window.location.hostname || '127.0.0.1'
+        this.connDialog.port = window.location.port || 3000
+        this.connDialog.stationId = this.selectedTerminal || localStorage.getItem('posTerminal') || ''
+        return
+      }
       try {
         const cfg = await window.appConfig.get()
         this.connDialog.host = cfg.host || cfg.ip || '127.0.0.1'
         this.connDialog.port = cfg.port || 3000
         this.connDialog.pgConn = cfg.pgConn || ''
+        this.connDialog.stationId = cfg.stationId || cfg.terminalCode || ''
       } catch (e) { /* 忽略，保留預設值 */ }
     },
     async saveConnSettings () {
-      if (!window.appConfig) return
+      const host = String(this.connDialog.host || '').trim() || '127.0.0.1'
+      const port = Number(this.connDialog.port) || 3000
+      const stationId = String(this.connDialog.stationId || '').trim()
+      // 瀏覽器：存分機編號到 localStorage，並重新導向到目標主機/埠套用
+      if (!window.appConfig) {
+        if (stationId) localStorage.setItem('posTerminal', stationId)
+        else localStorage.removeItem('posTerminal')
+        const scheme = window.location.protocol || 'http:'
+        window.location.href = `${scheme}//${host}:${port}/pos`
+        return
+      }
       this.connDialog.saving = true
       try {
-        const host = String(this.connDialog.host || '').trim() || '127.0.0.1'
-        const port = Number(this.connDialog.port) || 3000
         const pgConn = String(this.connDialog.pgConn || '').trim()
-        const patch = { host, port }
+        const patch = { host, port, stationId }
         if (pgConn) patch.pgConn = pgConn
         await window.appConfig.set(patch)
         // 主程序會在寫入後自動重載視窗套用
@@ -2380,7 +2400,15 @@ export default {
         this.connDialog.saving = false
       }
     },
-    loadTerminals () {
+    async loadTerminals () {
+      // 連線設定的分機編號（桌面版 app-config.json）：優先於上次選擇，僅次於 URL 參數
+      let cfgStation = ''
+      if (window.appConfig) {
+        try {
+          const cfg = await window.appConfig.get()
+          cfgStation = cfg.stationId || cfg.terminalCode || ''
+        } catch (e) { /* 忽略 */ }
+      }
       // 從 URL 參數獲取 terminalCode（如 /pos?terminal=POS-01）
       const urlParams = new URLSearchParams(window.location.search)
       const urlTerminal = urlParams.get('terminal') || ''
@@ -2390,6 +2418,10 @@ export default {
         if (urlTerminal && this.terminals.some(t => t.code === urlTerminal)) {
           this.selectedTerminal = urlTerminal
           localStorage.setItem('posTerminal', urlTerminal)
+        } else if (cfgStation && this.terminals.some(t => t.code === cfgStation)) {
+          // 使用連線設定指定的分機編號
+          this.selectedTerminal = cfgStation
+          localStorage.setItem('posTerminal', cfgStation)
         } else {
           // 否則恢復上次選擇的收銀機
           const saved = localStorage.getItem('posTerminal')

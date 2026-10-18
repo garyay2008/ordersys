@@ -103,6 +103,27 @@ function checkLicenseForId (key, id, publicKey) {
   return parsed
 }
 
+// 分機授權檢查：綁定收銀機編號 + 主機機器識別碼（machine_id）
+// machineId 為客戶主機的機器識別碼，使授權碼跨餐廳唯一；舊授權碼無 machineId 時僅依編號驗證（向後相容）
+function checkTerminalLicense (key, machineId, terminalCode, publicKey) {
+  const parsed = parseLicense(key, publicKey)
+  if (!parsed.valid) return parsed
+  const p = parsed.payload || {}
+  if (p.mid && p.mid !== terminalCode) {
+    return { valid: false, reason: 'MACHINE_MISMATCH', payload: p }
+  }
+  if (p.machineId && machineId && p.machineId !== machineId) {
+    return { valid: false, reason: 'MACHINE_MISMATCH', payload: p }
+  }
+  if (p.exp) {
+    const t = new Date(p.exp).getTime()
+    if (!isNaN(t) && t < Date.now()) {
+      return { valid: false, reason: 'EXPIRED', payload: p }
+    }
+  }
+  return parsed
+}
+
 // 主機授權檢查：綁定本機機器識別碼
 function checkLicense (key, publicKey) {
   return checkLicenseForId(key, getMachineId(), publicKey)
@@ -166,6 +187,7 @@ module.exports = {
   parseLicense,
   checkLicense,
   checkLicenseForId,
+  checkTerminalLicense,
   readLicenseKey,
   saveLicenseKey,
   getLicenseStatus,

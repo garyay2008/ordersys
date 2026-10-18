@@ -31,7 +31,7 @@ router.post('/activate-terminal', async (req, res) => {
   if (!key) {
     return res.status(400).json({ msg: '請輸入授權碼' })
   }
-  const result = license.checkLicenseForId(key, terminalCode)
+  const result = license.checkTerminalLicense(key, license.getMachineId(), terminalCode)
   if (!result.valid) {
     return res.status(400).json({ msg: '授權碼無效', code: result.reason })
   }
@@ -55,8 +55,8 @@ router.get('/terminal-status', async (req, res) => {
   }
   try {
     const doc = await TerminalLicense.findOne({ code })
-    const licensed = !!(doc && license.checkLicenseForId(doc.key, code).valid)
-    res.json({ licensed, code })
+    const licensed = !!(doc && license.checkTerminalLicense(doc.key, license.getMachineId(), code).valid)
+    res.json({ licensed, code, machineId: license.getMachineId() })
   } catch (e) {
     res.json({ licensed: false, code })
   }

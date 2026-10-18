@@ -45,7 +45,7 @@ router.get(
         let payload = null
         let maskedKey = ''
         if (l) {
-          const checked = license.checkLicenseForId(l.key, t.code)
+          const checked = license.checkTerminalLicense(l.key, license.getMachineId(), t.code)
           if (checked.valid) {
             status = 'licensed'
             payload = checked.payload || {}
@@ -86,7 +86,7 @@ router.post(
     const key = (req.body && req.body.licenseKey) || ''
     if (!terminalCode) return res.status(400).json({ msg: '缺少收銀機編號' })
     if (!key) return res.status(400).json({ msg: '請輸入授權碼' })
-    const result = license.checkLicenseForId(key, terminalCode)
+    const result = license.checkTerminalLicense(key, license.getMachineId(), terminalCode)
     if (!result.valid) {
       return res.status(400).json({ msg: '授權碼無效', code: result.reason })
     }
@@ -172,6 +172,10 @@ router.post(
       customer: (req.body && req.body.customer) || '',
       edition: (req.body && req.body.edition) || 'full',
       features: Array.isArray(req.body && req.body.features) ? req.body.features : []
+    }
+    // 分機授權綁定客戶主機 machine_id，使授權碼跨餐廳唯一
+    if ((req.body && req.body.edition) === 'terminal' && req.body && req.body.machineId) {
+      payload.machineId = String(req.body.machineId).trim()
     }
     if (req.body && req.body.exp) payload.exp = req.body.exp
     const key = license.generateLicense(payload, privateKey)

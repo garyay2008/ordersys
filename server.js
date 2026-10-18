@@ -94,7 +94,7 @@ if (process.env.LICENSE_ENFORCE === '1') {
         req.path === '/posterminal/enabled') return next()
     try {
       const doc = await TerminalLicense.findOne({ code: terminalCode })
-      if (doc && license.checkLicenseForId(doc.key, terminalCode).valid) return next()
+      if (doc && license.checkTerminalLicense(doc.key, license.getMachineId(), terminalCode).valid) return next()
     } catch (e) { /* 查無或錯誤皆視為未授權 */ }
     return res.status(402).json({ msg: '分機未授權或授權已過期', code: 'TERMINAL_UNLICENSED' })
   })

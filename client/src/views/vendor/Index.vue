@@ -77,6 +77,9 @@
               <el-form-item :label="generateForm.edition === 'terminal' ? '收銀機編號' : '機器識別碼'">
                 <el-input v-model="generateForm.mid" :placeholder="generateForm.edition === 'terminal' ? '如 11、POS-01、KIOSK-01' : '客戶機 machine ID'" style="width: 320px;"></el-input>
               </el-form-item>
+              <el-form-item v-if="generateForm.edition === 'terminal'" label="主機 machine_id">
+                <el-input v-model="generateForm.machineId" placeholder="客戶主機的機器識別碼（啟用頁顯示），綁定後跨餐廳唯一" style="width: 320px;"></el-input>
+              </el-form-item>
               <el-form-item label="客戶名稱">
                 <el-input v-model="generateForm.customer" placeholder="選填，僅供辨識" style="width: 320px;"></el-input>
               </el-form-item>
@@ -149,7 +152,7 @@ export default {
       terminals: [],
       activeTab: 'terminals',
       canGenerate: false,
-      generateForm: { edition: 'terminal', mid: '', customer: '', exp: '' },
+      generateForm: { edition: 'terminal', mid: '', machineId: '', customer: '', exp: '' },
       generatedKey: '',
       activateDialog: { show: false, code: '', licenseKey: '' },
       changePwdDialog: { show: false, password: '' }

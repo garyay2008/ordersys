@@ -2,9 +2,13 @@
   <div id="activate">
     <div class="activate-box">
       <p class="activate-title">{{ isTerminal ? '分機授權啟用' : '授權啟用' }}</p>
+      <div v-if="isTerminal" class="machine-id">
+        <span class="label">收銀機編號</span>
+        <span class="value">{{ terminalCode }}</span>
+      </div>
       <div class="machine-id">
-        <span class="label">{{ isTerminal ? '收銀機編號' : '機器識別碼' }}</span>
-        <span class="value">{{ isTerminal ? terminalCode : machineId }}</span>
+        <span class="label">機器識別碼（machine_id）</span>
+        <span class="value">{{ machineId }}</span>
       </div>
       <el-input
         type="textarea"
@@ -75,15 +79,13 @@ export default {
   created () {
     this.terminalCode = (this.$route.query.terminal || '').trim()
     this.redirect = (this.$route.query.redirect || '').trim()
-    if (!this.isTerminal) {
-      this.$axios.get('/api/license/status')
-        .then(res => {
-          this.machineId = (res.data && res.data.machineId) || ''
-        })
-        .catch(err => {
-          console.log(err)
-        })
-    }
+    this.$axios.get('/api/license/status')
+      .then(res => {
+        this.machineId = (res.data && res.data.machineId) || ''
+      })
+      .catch(err => {
+        console.log(err)
+      })
   }
 }
 </script>

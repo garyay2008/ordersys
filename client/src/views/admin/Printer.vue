@@ -259,6 +259,12 @@
             <el-option v-for="p in allStations" :key="p.name" :label="p.name" :value="p.name"></el-option>
           </el-select>
         </el-form-item>
+        <el-form-item label="點餐碼">
+          <el-select v-model="form.ticketTargets.tableqr" clearable placeholder="默認（沿用二維碼/收據）" style="width: 320px;">
+            <el-option label="默認（沿用二維碼/收據）" value=""></el-option>
+            <el-option v-for="p in allStations" :key="p.name" :label="p.name" :value="p.name"></el-option>
+          </el-select>
+        </el-form-item>
         <el-form-item label="追單小票">
           <el-select v-model="form.ticketTargets.chase" clearable placeholder="自動分檔（按貨品檔口）" style="width: 320px;">
             <el-option label="自動分檔（按貨品檔口）" value=""></el-option>
@@ -662,7 +668,7 @@ export default {
         format: withBoldDefaults(),
         formatDot: withBoldDefaults(),
         printers: defaultPrinters(),
-        ticketTargets: { kitchen: '', receipt: '', serving: '', print: '', qrcode: '', chase: '', pantry: '' },
+        ticketTargets: { kitchen: '', receipt: '', serving: '', print: '', qrcode: '', tableqr: '', chase: '', pantry: '' },
         zones: [],
         centralPrint: { ip: '', port: 9100, tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }
       }
@@ -761,7 +767,7 @@ export default {
             this.form.zones = (d.zones || []).map(z => Object.assign({}, z, {
               desksText: (z.desks || []).join(',')
             }))
-            this.form.ticketTargets = Object.assign({ kitchen: '', receipt: '', serving: '', print: '', qrcode: '', chase: '', pantry: '' }, d.ticketTargets || {})
+            this.form.ticketTargets = Object.assign({ kitchen: '', receipt: '', serving: '', print: '', qrcode: '', tableqr: '', chase: '', pantry: '' }, d.ticketTargets || {})
             this.form.centralPrint = Object.assign({ ip: '', port: 9100, tech: 'thermal', model: '', dpi: 180, paperWidth: 58, copies: 1 }, d.centralPrint || {})
           } else {
             this.$axios.get('/api/shop/get').then(r => {

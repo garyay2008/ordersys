@@ -1162,8 +1162,9 @@ router.post(
         }
         await printQueue.enqueuePrint(setting, printer, await escpos.buildPrintOrder(printer, order), order)
       } else if (req.body.type === 'qrcode') {
-        // 二维码小票 → 指定目标位置打印机
-        const printer = escpos.resolveTicketPrinter(setting, 'qrcode')
+        // 二维码小票 → 本機印單印表機 > 全域二維碼印表機
+        let printer = terminal ? escpos.resolveTerminalPrinter(setting, terminal.print) : null
+        if (!printer) printer = escpos.resolveTicketPrinter(setting, 'qrcode')
         await printQueue.enqueuePrint(setting, printer, await escpos.buildQrcodeOrder(printer, order), order)
       } else {
         // 后厨小票 → 指定目标打印机（或按档口路由）
@@ -1997,11 +1998,20 @@ router.post(
       if (!baseUrl) baseUrl = req.protocol + '://' + req.get('host')
       const url = baseUrl.replace(/\/+$/, '') + '/index/' + deskNo + '?t=' + token
 
-      // 列印（優先「二維碼」小票印表機，回退收據印表機）
+      // 列印（本機印單印表機 > 全域「點餐碼」小票印表機 > 「二維碼」小票印表機 > 收據印表機）
       const printerSetting = await Printer.findOne().exec()
-      let printer = printerSetting ? escpos.resolveTicketPrinter(printerSetting, 'qrcode') : null
+      let printer = null
+      if (printerSetting && req.body.terminalCode) {
+        try {
+          const terminal = await require('../../models/PosTerminal').findOne({ code: req.body.terminalCode }).lean().exec()
+          printer = terminal ? escpos.resolveTerminalPrinter(printerSetting, terminal.print) : null
+        } catch (e) {}
+      }
+      const tableqrTarget = printerSetting && printerSetting.ticketTargets && printerSetting.ticketTargets.tableqr
+      if ((!printer || !printer.ip) && tableqrTarget) printer = escpos.resolvePrinter(printerSetting, tableqrTarget)
+      if (!printer || !printer.ip) printer = printerSetting ? escpos.resolveTicketPrinter(printerSetting, 'qrcode') : null
       if ((!printer || !printer.ip) && printerSetting) printer = escpos.resolveTicketPrinter(printerSetting, 'receipt')
-      if (!printer || !printer.ip) return res.status(400).send('請先設置「二維碼」或「收據」打印機！')
+      if (!printer || !printer.ip) return res.status(400).send('請先設置「點餐碼」、「二維碼」或「收據」打印機！')
       await printQueue.enqueuePrint(printerSetting, printer, await escpos.buildTableQrOrder(printer, order, url), order)
 
       logAction(req, 'tableQr', '印枱面點餐碼', {
