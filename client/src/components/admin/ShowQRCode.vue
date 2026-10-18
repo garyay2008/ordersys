@@ -33,7 +33,7 @@ import QRCode from 'qrcode'
 
 const STYLE_COLORS = {
   B: { dark: '#297fff', light: '#ffffff' },
-  C: { dark: '#ffffff', light: '#1e3a5f' },
+  C: { dark: '#1e3a5f', light: '#ffffff' },
   E: { dark: '#1e3a5f', light: '#ffffff' }
 }
 
