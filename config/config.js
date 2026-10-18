@@ -9,7 +9,6 @@ if (!secretKey) {
 }
 
 module.exports = {
-  mongoURI: process.env.MONGO_URI || 'mongodb://localhost:27017/orderSYS',
   // PostgreSQL 連線（取代 MongoDB 的遷移目標，用 PG_CONN 環境變數覆寫）
   pgConn: process.env.PG_CONN || 'postgres://ordersys:ordersys@127.0.0.1:5432/ordersys',
   secretKey: secretKey || '0x3E5-dev-only',
