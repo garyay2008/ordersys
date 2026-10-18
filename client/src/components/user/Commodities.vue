@@ -393,10 +393,13 @@ export default {
       this.fetchSentItems()
     },
     fetchSentItems () {
-      if (!this.id) return
+      if (!this.id) {
+        return
+      }
       this.$axios.get('/api/order/current', { params: { deskNo: this.id } })
         .then(res => {
-          const items = (res.data && res.data.order) ? res.data.order.filter(item => item.voidStatus !== 1) : []
+          const raw = (res.data && res.data.order) || []
+          const items = raw.filter(item => item.voidStatus !== 1)
           if (items.length) {
             this.sentItems = items.map(item => ({
               name: item.name,
@@ -411,7 +414,9 @@ export default {
             this.sentPanelVisible = false
           }
         })
-        .catch(() => { this.sentItems = [] })
+        .catch(() => {
+          this.sentItems = []
+        })
     },
     loadMenu () {
       // 快取優先：僅首次進入（goods 尚為空）時先顯示上次菜單，背景刷新。

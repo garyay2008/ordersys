@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ordersys-v3'
+const CACHE_NAME = 'ordersys-v4'
 const PRECACHE = ['/pos']
 
 self.addEventListener('install', function (e) {

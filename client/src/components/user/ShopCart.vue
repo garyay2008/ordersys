@@ -279,7 +279,12 @@ export default {
       // 快照一份，避免送出後購物車數量被清空連帶影響確認版面顯示
       const order = (src || []).map(f => Object.assign({}, f))
       this.orderData = { deskNo: parseInt(this.id), totalPrice: this.totalPrice, order }
-      this.$refs.confirm.show()
+      // 重要：orderData 是傳給 Confirm 的 prop，Vue 2 更新子元件 prop 是異步的。
+      // 若同步呼叫 show()，Confirm 讀到的 orderData 仍是舊值（第一次為空、之後為上一筆）。
+      // 延到下一 tick 等 prop 傳遞完成再開啟，確認訂單版面才會顯示本次新加的品項。
+      this.$nextTick(() => {
+        this.$refs.confirm.show()
+      })
     },
     hideList () {
       this.fold = true

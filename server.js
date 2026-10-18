@@ -148,7 +148,7 @@ app.get(['/', '/login'], (req, res) => {
 // 帶 hash 的靜態資源（js/css/字型等）長效快取，index.html 不緩存（確保拿到最新版本）
 app.use(express.static(path.join(__dirname, 'client/dist'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('index.html') || filePath.endsWith('login.html')) {
+    if (filePath.endsWith('index.html') || filePath.endsWith('login.html') || filePath.endsWith('service-worker.js')) {
       res.setHeader('Cache-Control', 'no-cache')
     } else {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')

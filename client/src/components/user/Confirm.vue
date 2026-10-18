@@ -1,6 +1,6 @@
 <template>
     <div v-show="showConfirm" class="confirm-order">
-            <template v-if="!orderSuccess">
+            <div v-show="!orderSuccess" class="confirm-normal">
                 <div class="header">
                     <div class="back" @click="hide">
                         <i class="el-icon-arrow-left"></i>
@@ -45,9 +45,8 @@
                 <div class="bottom-area">
                     <el-button type="primary" class="submitBtn" @click="askConfirm">確認下單</el-button>
                 </div>
-            </template>
-            <template v-else>
-                <div class="success-view">
+            </div>
+            <div v-show="orderSuccess" class="success-view">
                     <div class="success-icon">
                         <i class="el-icon-circle-check"></i>
                     </div>
@@ -58,7 +57,6 @@
                         <el-button class="success-btn continue-btn" @click="continueOrder">繼續點餐</el-button>
                     </div>
                 </div>
-            </template>
         <el-dialog :visible.sync="showConfirmBox" title="" width="80%" custom-class="confirm-submit-dialog" :show-close="false" :close-on-click-modal="false" append-to-body>
             <div class="confirm-box-body">
                 <p class="confirm-box-title">訂單確認！</p>
@@ -203,7 +201,14 @@ export default {
         display: flex;
         flex-direction: column;
     }
-    .confirm-order > .header{
+    .confirm-normal{
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+    }
+    .confirm-normal > .header{
         position: relative;
         background: #fff;
         height: 52px;
@@ -214,7 +219,7 @@ export default {
         border-bottom: 1px solid #f0f2f5;
         flex-shrink: 0;
     }
-    .confirm-order > .header > .back{
+    .confirm-normal > .header > .back{
         position: absolute;
         top: 0;
         left: 0;
@@ -222,7 +227,7 @@ export default {
         display: flex;
         align-items: center;
     }
-    .confirm-order > .header > .back > .el-icon-arrow-left{
+    .confirm-normal > .header > .back > .el-icon-arrow-left{
         display: block;
         padding: 10px 14px;
         font-size: 22px;
@@ -232,23 +237,23 @@ export default {
         box-shadow: 0 2px 10px var(--accent-glow);
         cursor: pointer;
     }
-    .confirm-order > .header > .back > .el-icon-arrow-left:active{
+    .confirm-normal > .header > .back > .el-icon-arrow-left:active{
         opacity: 0.85;
     }
-    .confirm-order > .header > .title{
+    .confirm-normal > .header > .title{
         font-size: 17px;
         font-weight: 700;
         color: #1e293b;
         letter-spacing: 0.3px;
     }
-    .confirm-order > .contents{
+    .confirm-normal > .contents{
         flex: 1;
         width: 100%;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding-bottom: 8px;
     }
-    .confirm-order > .contents > .order-list{
+    .confirm-normal > .contents > .order-list{
         padding: 16px;
     }
     .contents > .order-list > .order-header{
@@ -379,7 +384,7 @@ export default {
     .contents > .order-list > .total > .total-row.grand > .price{
         font-size: 20px;
     }
-    .confirm-order > .bottom-area{
+    .confirm-normal > .bottom-area{
         padding: 0 16px 24px;
         background: #fff;
         border-top: 1px solid #f0f2f5;
