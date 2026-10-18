@@ -1,20 +1,19 @@
 services:
-  mongo:
-    image: mongo:7.0
-    container_name: ordersys-mongo
+  postgres:
+    image: postgres:17
+    container_name: ordersys-postgres
     restart: unless-stopped
-    command: ["mongod", "--auth"]
     environment:
       TZ: "Asia/Hong_Kong"
-      MONGO_INITDB_ROOT_USERNAME: ordersys
-      MONGO_INITDB_ROOT_PASSWORD: "306670c6ce55a4f30ed230fd8bb9e366b019"
+      POSTGRES_USER: ordersys
+      POSTGRES_PASSWORD: ordersys
+      POSTGRES_DB: ordersys
     ports:
-      - "127.0.0.1:27017:27017"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - mongo_data:/data/db
-      - ./full_backup_20260914_100417.json:/seed/backup.json:ro
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mongosh", "--username", "ordersys", "--password", "306670c6ce55a4f30ed230fd8bb9e366b019", "--authenticationDatabase", "admin", "--quiet", "--eval", "db.runCommand({ping:1}).ok ? quit(0) : quit(1)"]
+      test: ["CMD-SHELL", "pg_isready -U ordersys -d ordersys"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -29,7 +28,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      MONGO_URI: "mongodb://ordersys:306670c6ce55a4f30ed230fd8bb9e366b019@mongo:27017/orderSYS?authSource=admin"
+      PG_CONN: "postgres://ordersys:ordersys@postgres:5432/ordersys"
       REDIS_URL: "redis://redis:6379"
       JWT_SECRET: "e9d2d19f8c27bc6cd089140797a4a50caf88fbdc5a90c7771da306e7d7df0906"
       LICENSE_KEY: ""
@@ -41,13 +40,12 @@ services:
       QUEUE_UI_USER: "admin"
       QUEUE_UI_PASSWORD: "ordersys"
     volumes:
-      - ./full_backup_20260914_100417.json:/seed/backup.json:ro
       - ./public/logo:/app/public/logo
       - ./public/qr:/app/public/qr
       - ./public/shop:/app/public/shop
       - ./public/fonts:/app/public/fonts
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_started
@@ -72,7 +70,7 @@ services:
       - ordersys
 
 volumes:
-  mongo_data:
+  postgres_data:
   redis_data:
 
 networks:

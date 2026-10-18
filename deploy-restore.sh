@@ -94,5 +94,4 @@ echo "==> [5/5] 服務狀態..."
 docker compose ps
 echo ""
 echo "完成！前端/後端: http://<主機IP>:3000"
-echo "CUPS 列印伺服器: http://<主機IP>:631（admin / posprint；首次需在 CUPS 新增 Raw 佇列 socket://<印表機IP>:9100）"
 echo "登入帳號: admin1 / admin123（如備份中所存）"

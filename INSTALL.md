@@ -81,7 +81,7 @@ Android 是「連到主機的網頁前檯」，用瀏覽器開啟即可，無需
 ## 六、列印設定
 
 - 打印機用**網路打印機**（`ip:9100` 直連），在各前檯/檔口設定裡填 IP 即可，Windows / Linux / Android 通用（由主機出單）。
-- 後台路徑：`/admin/printer`、`/admin/posterminal` 設定打印機 IP 與 CUPS 佇列（Linux 可選）。
+- 後台路徑：`/admin/printer`、`/admin/posterminal` 設定打印機 IP（`ip:9100` 直連）。
 
 ---
 
@@ -90,7 +90,7 @@ Android 是「連到主機的網頁前檯」，用瀏覽器開啟即可，無需
 | 項目 | 埠 | 說明 |
 |------|----|------|
 | 網頁服務 | `3000` | 主機對外開放，Android 裝置連此埠 |
-| MongoDB | `27017` | 只綁 `127.0.0.1`，不對外 |
+| PostgreSQL | `5432` | 只綁 `127.0.0.1`，不對外 |
 | 授權 | — | 綁定主機機器碼（首次啟動產生），在後台 `/admin` 或 `/api/license/status` 查看 |
 
 ---

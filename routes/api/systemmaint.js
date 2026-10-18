@@ -16,17 +16,21 @@ const Department = require('../../models/Department')
 const Printer = require('../../models/Printer')
 const PosSetting = require('../../models/PosSetting')
 
-const MENU_COLLECTIONS = [
-  'categories', 'categoryitems', 'commodities', 'combos', 'modcodes', 'modcodecategories'
-]
-// 隨「匯出菜單」一併打包的 POS 設定集合（獨立設定檔，無跨集合引用，可安全覆蓋匯入）
-const CONFIG_COLLECTIONS = [
-  'possettings', 'staffs', 'tables', 'zones', 'posterminals', 'printers'
-]
-const MENU_CONFIG_COLLECTIONS = MENU_COLLECTIONS.concat(CONFIG_COLLECTIONS)
+// 營業數據（匯出菜單時排除；完整備份 GET /backup 仍會包含）
 const BUSINESS_COLLECTIONS = [
-  'orders', 'businessdays', 'clockrecords', 'chartsdata'
+  'orders', 'businessdays', 'clockrecords', 'chartsdatas',
+  'holds', 'queuetickets', 'auditlogs'
 ]
+// 系統內部表（不隨菜單匯出／匯入，避免覆寫遷移紀錄）
+const SYSTEM_COLLECTIONS = [
+  'schema_migrations'
+]
+
+// 「匯出菜單」＝全部資料表扣除營業數據與系統內部表，其餘（菜單＋POS/各項設定）一併匯出
+async function menuExportTables () {
+  const tables = await listTables()
+  return tables.filter(t => BUSINESS_COLLECTIONS.indexOf(t) < 0 && SYSTEM_COLLECTIONS.indexOf(t) < 0)
+}
 
 // ---- 通用 PG 資料表工具（取代 mongoose.connection.db.collection） ----
 function quoteIdent (name) {
@@ -95,12 +99,13 @@ router.get('/backup', passport.authenticate('jwt', { session: false }), requireL
 })
 
 // $route GET api/systemmaint/exportmenu
-// @desc 匯出菜單資料（含 POS 設定：possettings/staffs/tables/posterminals/printers）
+// @desc 匯出菜單資料（除營業數據外，含菜單與 POS/各項設定）
 // @access private
 router.get('/exportmenu', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
+    const tables = await menuExportTables()
     const data = {}
-    for (const name of MENU_CONFIG_COLLECTIONS) {
+    for (const name of tables) {
       data[name] = await tableAll(name)
     }
     res.setHeader('Content-Disposition', `attachment; filename="menu_${Date.now()}.json"`)
@@ -141,7 +146,7 @@ router.post('/importdb', passport.authenticate('jwt', { session: false }), requi
 })
 
 // $route POST api/systemmaint/importmenu
-// @desc 匯入菜單資料（含 POS 設定）
+// @desc 匯入菜單資料（除營業數據外，含菜單與 POS/各項設定）
 // @access private
 router.post('/importmenu', passport.authenticate('jwt', { session: false }), requireLevel(4), async (req, res) => {
   try {
@@ -149,9 +154,12 @@ router.post('/importmenu', passport.authenticate('jwt', { session: false }), req
     if (!data || typeof data !== 'object') {
       return res.status(400).json({ msg: '無效的匯入資料' })
     }
+    const existing = await listTables()
     let count = 0
-    for (const name of MENU_CONFIG_COLLECTIONS) {
-      if (!data[name] || !Array.isArray(data[name])) continue
+    for (const name of Object.keys(data)) {
+      if (!Array.isArray(data[name])) continue
+      if (BUSINESS_COLLECTIONS.indexOf(name) >= 0 || SYSTEM_COLLECTIONS.indexOf(name) >= 0) continue
+      if (existing.indexOf(name) < 0) continue
       await tableDeleteAll(name)
       if (data[name].length) {
         await tableInsertMany(name, data[name])

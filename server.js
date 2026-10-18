@@ -21,28 +21,11 @@ app.use(require('./middleware/compress')())
 // 連接 PostgreSQL
 const config = require('./config/config')
 const pg = require('./db/pg')
+const { migrate } = require('./db/migrate')
 
-const isConnected = pg.query('SELECT 1').then(() => {
+const isConnected = pg.query('SELECT 1').then(async () => {
   console.log('[Log] The database is connected.')
-  // 遷移：自動補齊 Commodity.categoryId（舊資料只有 category 字串）
-  const Commodity = require('./models/Commodity')
-  const Category = require('./models/Category')
-  Category.find().then(cats => {
-    const nameToId = {}
-    cats.forEach(c => { nameToId[c.cName] = c._id })
-    return Commodity.find({ categoryId: { $exists: false } }).then(items => {
-      if (!items.length) return
-      console.log('[Migration] 補齊 ' + items.length + ' 筆商品的 categoryId')
-      return Promise.all(items.map(it => {
-        const id = nameToId[it.category]
-        if (!id) return null
-        return Commodity.updateOne({ _id: it._id }, { $set: { categoryId: id } })
-      }))
-    })
-  }).catch(err => console.log('[Migration] categoryId 補齊失敗：' + err.message))
-  // 遷移：補齊 orders.locked_at 欄位（工作站鎖定時間，供鎖定 TTL 判斷呆鎖）
-  pg.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS locked_at timestamptz').catch(err =>
-    console.log('[Migration] orders.locked_at 補齊失敗：' + err.message))
+  await migrate()
 
   // Seed 預設 Amounts
   const Amount = require('./models/Amount')
@@ -67,6 +50,8 @@ const isConnected = pg.query('SELECT 1').then(() => {
   require('./models/PosSetting').findOne()
     .then(ps => { if (ps) require('./plugins/Printer').setPosSettingCache(ps) })
     .catch(() => {})
+  // 啟動中央備份上傳排程（方案 C）
+  require('./utils/centralBackup').startScheduler()
 })
 
 // 設置靜態資源服務器
@@ -147,6 +132,7 @@ app.use('/api/queue', require('./routes/api/queue'))
 app.use('/api/hold', require('./routes/api/hold'))
 app.use('/api/systemmaint', require('./routes/api/systemmaint'))
 app.use('/api/mreport', require('./routes/api/mreport'))
+app.use('/api/centralbackup', require('./routes/api/centralbackup'))
 
 // Bull Board 列印佇列儀表板（Basic Auth 保護）
 app.use('/admin/queues', printDashboard.basicAuth, printDashboard.router)
@@ -209,6 +195,6 @@ isConnected.then(() => {
   process.on('SIGTERM', () => shutdown('SIGTERM'))
   process.on('SIGINT', () => shutdown('SIGINT'))
 }).catch(err => {
-  console.error('[Log] PostgreSQL connection failed:', err.message)
+  console.error('[Log] 啟動失敗（資料庫連線或遷移）：', err.message)
   process.exit(1)
 })

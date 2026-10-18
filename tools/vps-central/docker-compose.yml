@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: ordersys-pg17
+    restart: unless-stopped
+    environment:
+      TZ: "Asia/Hong_Kong"
+      POSTGRES_USER: ordersys
+      POSTGRES_PASSWORD: ordersys
+      POSTGRES_DB: ordersys
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ordersys_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ordersys -d ordersys"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  ordersys_pg_data:

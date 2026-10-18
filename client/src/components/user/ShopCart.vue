@@ -141,12 +141,13 @@ export default {
   },
   computed: {
     totalPrice () {
-      if (this.effectiveOrder && this.effectiveOrder.totalPrice !== undefined) {
-        return this.effectiveOrder.totalPrice
+      const eff = this.effectiveOrder && this.effectiveOrder.totalPrice
+      if (typeof eff === 'number' && eff > 0) {
+        return eff
       }
       let total = 0
       this.selectFoods.forEach((food) => {
-        total += food.price * food.count
+        total += (food.price || 0) * (food.count || 1)
       })
       total = Math.round(total * 100) / 100
       return total
@@ -252,6 +253,8 @@ export default {
       this.selectFoods.forEach((food) => {
         food.count = 0
       })
+      // 清空後收回購物車列表，避免再加第一個貨品時又自動展開詳情
+      this.fold = true
       this.$emit('emptyCart')
     },
     showSent () {
@@ -269,7 +272,12 @@ export default {
       if (this.totalPrice <= 0) {
         return
       }
-      const order = (this.effectiveOrder && this.effectiveOrder.items) ? this.effectiveOrder.items : this.selectFoods
+      const effItems = this.effectiveOrder && Array.isArray(this.effectiveOrder.items) && this.effectiveOrder.items.length
+        ? this.effectiveOrder.items
+        : this.selectFoods
+      const src = effItems && effItems.length ? effItems : this.selectFoods
+      // 快照一份，避免送出後購物車數量被清空連帶影響確認版面顯示
+      const order = (src || []).map(f => Object.assign({}, f))
       this.orderData = { deskNo: parseInt(this.id), totalPrice: this.totalPrice, order }
       this.$refs.confirm.show()
     },

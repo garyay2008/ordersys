@@ -1,6 +1,5 @@
 <template>
-    <transition name="move">
-        <div v-show="showConfirm" class="confirm-order">
+    <div v-show="showConfirm" class="confirm-order">
             <template v-if="!orderSuccess">
                 <div class="header">
                     <div class="back" @click="hide">
@@ -70,8 +69,7 @@
                 </div>
             </div>
         </el-dialog>
-        </div>
-    </transition>
+    </div>
 </template>
 
 <script>

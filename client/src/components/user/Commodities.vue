@@ -392,7 +392,7 @@ export default {
       this.sentPanelVisible = true
       this.fetchSentItems()
     },
-    fetchSentItems (autoOpen) {
+    fetchSentItems () {
       if (!this.id) return
       this.$axios.get('/api/order/current', { params: { deskNo: this.id } })
         .then(res => {
@@ -406,10 +406,6 @@ export default {
               isCombo: item.isCombo,
               contents: item.contents
             }))
-            // 掃碼進入時已有品項，直接開啟「查看單據」版面
-            if (autoOpen) {
-              this.$nextTick(() => { if (this.$refs.shopcart) this.$refs.shopcart.showSent() })
-            }
           } else {
             this.sentItems = []
             this.sentPanelVisible = false
@@ -418,10 +414,13 @@ export default {
         .catch(() => { this.sentItems = [] })
     },
     loadMenu () {
-      // 快取優先：二次進入先顯示上次菜單，背景刷新
-      const cached = qrCache.get('goods')
-      if (cached && cached.length) {
-        this.goods = cached
+      // 快取優先：僅首次進入（goods 尚為空）時先顯示上次菜單，背景刷新。
+      // 之後的刷新（如 menuChanged）不可覆蓋 this.goods，否則會把客人已加的數量清掉。
+      if (!this.goods || !this.goods.length) {
+        const cached = qrCache.get('goods')
+        if (cached && cached.length) {
+          this.goods = cached
+        }
       }
       return this.$axios.get('/api/commodity/menu', { params: { mode: '堂食', channel: 'qr' } })
         .then(res => {
@@ -440,8 +439,20 @@ export default {
                 foods: extra.map(c => Object.assign({}, c, { isCombo: true }))
               })
             }
-            this.goods = goods
+            // 背景刷新期間客人可能已按「+」加數量（count 記在快取顯示的物件上），
+            // 若直接整份替換會把已加數量清掉，導致購物車有貨、送出時卻漏單。以 _id 對照保留已加數量。
+            const counts = {}
+            ;(this.goods || []).forEach(g => (g.foods || []).forEach(f => {
+              if (f && f.count) counts[String(f._id)] = f.count
+            }))
+            // 先快取「乾淨」菜單（尚未複製購物車數量），避免把 count 寫進菜單快取造成下次進入顯示幽靈品項
             qrCache.set('goods', goods)
+            if (Object.keys(counts).length) {
+              goods.forEach(g => (g.foods || []).forEach(f => {
+                if (counts[String(f._id)]) f.count = counts[String(f._id)]
+              }))
+            }
+            this.goods = goods
           })
         })
     },
@@ -669,8 +680,7 @@ export default {
       .catch(() => {})
     const menu = this.loadMenu()
     // 進入點餐版面時先同步一次「查看單據」，不依賴其他 API 是否載入完成
-    // 掃碼進入時若已有品項，直接帶入「查看單據」版面
-    this.fetchSentItems(true)
+    this.fetchSentItems()
     Promise.all([qs, pos, menu, mods, modCats, rules, bgs])
       .then(() => {
         // QR 功能設定：隱藏沽清品項

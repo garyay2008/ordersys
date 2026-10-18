@@ -792,16 +792,6 @@
     <!-- 代支 / 代收 -->
     <cash-move-dialog :cash-move-dialog="cashMoveDialog" @confirm="confirmCashMove"></cash-move-dialog>
 
-    <!-- 枱面點餐碼（印出後顯示網址供核對） -->
-    <el-dialog title="點餐碼" :visible.sync="tableQrDialog" width="420px" append-to-body custom-class="pos-dialog">
-      <div style="text-align:center; word-break:break-all; line-height:1.6; padding:8px 0;">
-        <p style="margin:0 0 10px;">已列印點餐碼，客人掃描後進入點餐版面：</p>
-        <el-input :value="tableQrUrl" readonly size="small">
-          <el-button slot="append" @click="copyTableQrUrl">複製</el-button>
-        </el-input>
-      </div>
-    </el-dialog>
-
     <!-- 打柯單（班地厘訊息） -->
     <pantry-dialog :pantry-dialog="pantryDialog" @confirm="sendPantryMessage"></pantry-dialog>
 
@@ -1058,8 +1048,6 @@ export default {
       paxKeypad: { show: false, value: '' },
       pluDialog: { show: false, value: '' },
       cashMoveDialog: { show: false, type: 'paidOut', amount: '', reason: '', loading: false },
-      tableQrDialog: false,
-      tableQrUrl: '',
       pantryDialog: { show: false, message: '', loading: false },
       openPriceDialog: { show: false, food: null },
       priceDialog: { show: false, index: null, value: '' },
@@ -3280,6 +3268,8 @@ export default {
       if (!this.loggedIn || !this.selectedTable || this.view !== 'order' || !this.isDineIn) return
       const no = this.selectedTable
       const current = this.carts[no] || []
+      // 剛送單、本地已標 sent 但尚未取回 _orderNo 的品項：暫不重建，避免被尚未更新的 unfinishedOrders 覆蓋
+      if (current.some(i => i.sent && !i._orderNo)) return
       const orders = this.unfinishedOrders.filter(o => String(o.deskNo) === String(no))
       const sent = []
       orders.forEach(o => (o.order || []).forEach((item, idx) => {
@@ -5508,34 +5498,10 @@ export default {
         return
       }
       this.$axios.post('/api/order/tableQr/print', { deskNo: String(this.selectedTable), terminalCode: this.selectedTerminal })
-        .then(res => {
+        .then(() => {
           this.$message({ type: 'success', message: '點餐碼已列印（結帳後才失效）' })
-          if (res.data && res.data.url) {
-            this.tableQrUrl = res.data.url
-            this.tableQrDialog = true
-          }
         })
         .catch(err => { this.$message({ type: 'error', message: (err.response && err.response.data) || '印點餐碼失敗' }) })
-    },
-    copyTableQrUrl () {
-      if (!this.tableQrUrl) return
-      const done = () => this.$message({ type: 'success', message: '已複製點餐碼網址' })
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(this.tableQrUrl).then(done).catch(() => this.fallbackCopyTableQrUrl())
-      } else {
-        this.fallbackCopyTableQrUrl()
-      }
-    },
-    fallbackCopyTableQrUrl () {
-      const ta = document.createElement('textarea')
-      ta.value = this.tableQrUrl
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      try { document.execCommand('copy') } catch (e) {}
-      document.body.removeChild(ta)
-      this.$message({ type: 'success', message: '已複製點餐碼網址' })
     },
     openCashMove (type) {
       this.cashMoveDialog = { show: true, type, amount: '', reason: '', loading: false }

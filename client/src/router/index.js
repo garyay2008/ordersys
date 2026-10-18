@@ -127,36 +127,12 @@ const routes = [
         component: () => import('../views/admin/Combo')
       },
       {
-        path: '/admin/bundle',
-        name: 'Bundle',
+        path: '/admin/bundlemanage',
+        name: 'BundleManage',
         meta: {
-          title: '撞餐設定'
+          title: '撞餐管理'
         },
-        component: () => import('../views/admin/Bundle')
-      },
-      {
-        path: '/admin/bundlegroup',
-        name: 'BundleGroup',
-        meta: {
-          title: '跟餐組別管理'
-        },
-        component: () => import('../views/admin/BundleGroup')
-      },
-      {
-        path: '/admin/maingroup',
-        name: 'MainGroup',
-        meta: {
-          title: '主菜組別管理'
-        },
-        component: () => import('../views/admin/MainGroup')
-      },
-      {
-        path: '/admin/matchingrule',
-        name: 'MatchingRule',
-        meta: {
-          title: '撞餐規則'
-        },
-        component: () => import('../views/admin/MatchingRule')
+        component: () => import('../views/admin/BundleManage')
       },
       {
         path: '/admin/modcode',
@@ -261,6 +237,14 @@ const routes = [
           title: '系統維護'
         },
         component: () => import('../views/admin/SystemMaint')
+      },
+      {
+        path: '/admin/shopupload',
+        name: 'ShopUpload',
+        meta: {
+          title: '店舖上傳設定'
+        },
+        component: () => import('../views/admin/ShopUpload')
       },
       {
         path: '/admin/modifyorder',

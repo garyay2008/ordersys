@@ -513,6 +513,12 @@ function makeModel (table, fields, modelName, defaults = {}) {
   Model.deleteOne = deleteOne
   Object.defineProperty(Model, 'modelName', { get () { return modelName } })
 
+  // 暴露 schema 元資料（供 db/migrations 建表腳本 / 工具讀取，唯讀）
+  Model.table = table
+  Model.fields = fields
+  Model.cols = cols
+  Model.types = types
+
   return Model
 }
 

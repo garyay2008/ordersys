@@ -18,10 +18,10 @@ orderSYS is a lightweight restaurant POS (Point of Sale) ordering system for sma
 | Layer | Technology |
 |-------|------------|
 | Frontend | Vue 2 + Vue Router + Vuex + Element UI + Axios |
-| Backend | Node.js + Express + Mongoose + Passport (JWT) |
-| Database | MongoDB |
+| Backend | Node.js + Express + Passport (JWT) + DAL (`db/model.js`) |
+| Database | PostgreSQL |
 | Realtime | Socket.IO |
-| Printing | ESC/POS thermal printers (TCP :9100); optional CUPS/IPP queue via `@sealsystems/ipp` (`plugins/Cups.js`) |
+| Printing | ESC/POS thermal printers (TCP :9100) via `plugins/Printer.js`; BullMQ + Redis 出單佇列 (`plugins/printQueue.js`) |
 
 ## Development Commands
 
@@ -43,12 +43,18 @@ node server.js                    # Serves static files from client/dist/
 ## Architecture
 
 ### Backend (`server.js`)
-- Express server listening on `0.0.0.0:3000`; the HTTP listener starts only after MongoDB connects
-- MongoDB connection with automatic migration for `Commodity.categoryId` (old records stored only the `category` name string)
-- Calls `createIndexes()` on `Order`, `Staff`, `Table`, `Commodity`, `AuditLog` after connect (production disables `autoIndex`, so indexes are created manually)
+- Express server listening on `0.0.0.0:3000`; the HTTP listener starts only after the database connects
+- Runs versioned DB migrations (`db/migrate.js` → `db/migrations/`) on startup before the HTTP listener starts — see Database Migrations
 - Seeds default `Amount` payment methods (現金/信用卡/行動支付/八達通) and pay types (堂食/外賣自取) on startup
 - Serves static files from `./public` and `./client/dist`
 - SPA history fallback for all routes
+
+### Database Migrations
+- Versioned migration runner in `db/migrate.js`; runs on startup before the HTTP listener starts, tracked by a `schema_migrations` table so each migration runs exactly once
+- Migration files live in `db/migrations/`, named `{version}_{name}.{sql|js}` (e.g. `001_add_orders_locked_at.sql`, `002_backfill_commodity_category_id.sql`); applied in order of the numeric `version` prefix
+- `.sql` files run as raw SQL; `.js` files export an `up(client)` function (or the module itself) for data migrations
+- Each migration is wrapped in a transaction; on failure it rolls back and the server aborts startup
+- Standard flow for a new column: 1) add `db/migrations/00N_xxx.sql` (idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`), 2) add the field to the model's `makeModel(...)` fields, 3) bump version + ship
 
 ### Authentication & Authorization
 - **Admin users**: `models/User.js` — JWT token stored in `localStorage.orderTk`
@@ -65,7 +71,7 @@ node server.js                    # Serves static files from client/dist/
 - `/api/printer`, `/api/possetting`, `/api/posterminal` — Printer config, POS button config, POS terminals
 - `/api/combo`, `/api/modcode` — Combos & modification codes
 - `/api/matchingrule` — 撞餐規則 (independent cross-item price-matching rule table) CRUD + public `/list`
-- `/api/print` — CUPS print queue (`POST /` raw IPP print, `GET /jobs`, `POST /jobs/:id/cancel`)
+- `/api/print` — Bull Board 監控會話 (`POST /queueui-session`，供 PrintMonitor 內嵌 iframe 免 Basic Auth)
 - `/api/statistic` (implemented in `statisticData.js`) — Reports & analytics
 - `/api/qrsetting`, `/api/qrcode` — QR ordering config & code generation
 - `/api/shop`, `/api/init` — Shop profile & first-run setup
@@ -88,7 +94,7 @@ node server.js                    # Serves static files from client/dist/
 
 ### Key Models
 - **Order**: Contains `order` array (items), `state` (0=unfinished/open, 1=settled/closed), `source` (`pos`/`qr`/`extension`/`kiosk`), `printed` (sent to kitchen), `voidStatus`, payment fields, and `businessDayId`/`shiftId` refs
-- **Commodity**: Has `categoryId` (ObjectId ref), `station`/`stations` (printer routing), `department` (部門, string populated from ISM `item.xml` `dept_id` on import and used for report aggregation), `plu` (PLU code), `showOnPos`/`showOnQr` (channel visibility), `stock`/`soldOut` for inventory-based sold-out, plus `mainGroupId`/`bundleGroupId` (主菜組別/跟餐組別 ObjectId refs for 撞餐規則)
+- **Commodity**: Has `categoryId` (_id 字串 ref), `station`/`stations` (printer routing), `department` (部門, string populated from ISM `item.xml` `dept_id` on import and used for report aggregation), `plu` (PLU code), `showOnPos`/`showOnQr` (channel visibility), `stock`/`soldOut` for inventory-based sold-out, plus `mainGroupId`/`bundleGroupId` (主菜組別/跟餐組別 _id 字串 refs for 撞餐規則)
 - **PosSetting** (singleton): POS layout/theme (`orderLayout`/`orderTheme`/`panels`, `freeLayoutEdit` design mode), per-button permissions (`btnPerms` + `buttonOrder`, defaults in `DEFAULT_BTN_PERMS`), `managerMenu` (經理功能選單 — manager-login-gated funcCodes; default `18`/`17`/`44`/`43` where `44` is 複印單據), `serviceChargeRate`/`roundingMode`, time-slot jump-price rules (`jumpPriceRules`, `publicHolidays`) and 分市時間 `slots` (report grouping), `businessDayCutoff` (cross-midnight day boundary), and order-number prefixes (`dineInPrefix`/`takeawayPrefix`)
 - **Staff**: `permissionLevel` field determines POS permission (1=waiter, 2=cashier, 3=manager, 4=admin); `no` is the login ID; admin `User` accounts are treated as level 4
 - **AuditLog**: records sensitive admin/POS actions for traceability
@@ -99,7 +105,7 @@ node server.js                    # Serves static files from client/dist/
 - **Combo**: combo meals — `type` `select` (選單式合菜) / `fixed` (固定式桌菜), with `groups` of min/max-selectable items, each item supporting `modifiers` and `substitutes`. Also carries 撞餐 fields: `mainDishes` (主食綁定，點擊自動帶出跟餐), `autoPopup`, `autoBundle` (`false`=不參與 / `true`=強制 / 未設=依類型), `bundlePriority`, `mainGroupId` (主菜組別 `MainGroup._id`，撞餐規則主食側記認；套餐也可當主食側參與撞餐，見 `isBundlableItem`), `effectiveTime` (撞餐時段), and `noPrintComboName` (不列印套餐名 — 後廚/服務票種拆成子品項獨立打印，收據/印單小票仍保留套餐名)
 - **Category**: recursive tree of menu categories (`parentId` nesting, `no` sibling sort, `rootOrder` top-level POS order); per-category `department`, `serviceModes`, `channels` (pos/qr), `effectiveTime` (POS/QR scheduling), `slots` (time-slot grouping), `colorFrom`/`colorTo`/`textColor` (tab gradient), and `modCategories` (array of `ModCodeCategory.name`, managed via the category UI). Deleting a category is guarded against orphaned children/items; sibling reorder uses `POST /api/category/swapOrder`. The admin page (`Category.vue`) has a right-panel tab switch 內容 / **POS 預覽** — the POS preview renders a POS register mock (top-level gradient pills → drill-down child tiles → food list) derived from `parentId` + `GET /api/category/:id/items`, filtered to POS-channel + `active` categories, mirroring `catPillStyle`/`catTileStyle` in the POS `Index.vue` (no backend changes)
 - **CategoryItem**: ordered membership linking a category to child `category`/`combo`/`commodity` entries (`targetType`) with `sortOrder`; auto-created/moved on commodity add/edit via `ensureCategoryItem()` in `routes/api/commodity.js` and removed on delete — the POS menu only shows commodities that have a `CategoryItem` record
-- **Department**: 部門管理 (kitchen/水吧/燒味/點心…); `name` (required), `code`, `sort`, `active`; commodities link via a plain-string `department` field (not an ObjectId ref); seeded from ISM `department.xml` on `importism`
+- **Department**: 部門管理 (kitchen/水吧/燒味/點心…); `name` (required), `code`, `sort`, `active`; commodities link via a plain-string `department` field (not an _id 字串 ref); seeded from ISM `department.xml` on `importism`
 - **KioskSetting** (singleton): self-service kiosk/payment-machine settings — `paymentMethods` (default 八達通/行動支付), `fpsQrImage`, `showImages`, `terminalCode`, `dineIn`, `takeaway`, `payByOrderNo`
 - **MenuSetting** (singleton): electronic menu (電子Menu) wall-screen settings
 - **QueueSetting** (singleton): HK-style queue config — `enabled`/`voiceEnabled`, `title`/`subtitle`, and `categories` (prefix/label/minPax/maxPax/color; default A=1-2人, B=3-4人, C=5人以上)
@@ -143,7 +149,7 @@ node server.js                    # Serves static files from client/dist/
 - Voice calling on the display screen via `window.speechSynthesis` (`zh-HK`); `voiceEnabled` toggle in settings
 
 ### Printer System (`plugins/Printer.js`)
-- ESC/POS protocol for **network printers only** (raw TCP socket to `ip:9100` via `net.connect`, or CUPS/IPP queue via `cups.printRaw`; no OS driver needed). **USB is not currently supported.** Each station/terminal/zone/central printer has an optional `queue` field — when set, the print goes through CUPS (`cups.printRaw(queue, buffer)`); when empty, it falls back to direct TCP `ip:9100`.
+- ESC/POS protocol for **network printers only** (raw TCP socket to `ip:9100` via `net.connect`; no OS driver needed). **USB is not currently supported.**
 - Supports both thermal (感熱) and dot-matrix/impact (針式, e.g. Epson TM-U220) printers; each station printer has a `tech` field (`thermal` default / `dot`), plus `model` (型號預設: `tmt88`/`xp80ts`/`tmu220`/`''`) and `dpi` (180/203). The admin UI auto-fills `tech`/`dpi`/`paperWidth` when a model is selected (e.g. XP-80TS → thermal/203dpi/80mm)
 - `initPrinter()` forces `tech === 'dot'` printers into **text mode** (built-in Chinese font) and ignores the global `imagePrint` setting, because dot-matrix printers do not support the `GS v 0` raster command
 - Supports 58mm and 80mm paper widths (reference: 180dpi Epson TM-T88VI → 80mm=512px / 58mm=360px; `pixelWidth(paperWidth, dpi)` scales per-printer `dpi`, e.g. 203dpi XP-80TS → 80mm=576px)
@@ -155,7 +161,7 @@ node server.js                    # Serves static files from client/dist/
 - 營業報表 80mm 列印：`buildReportTicket(setting, report)` renders a fixed-80mm text ticket (label + right-aligned 金額/數量/平均, section titles, bold rows, `折扣` rows from `sections`), printed via `POST /api/printer/printReport` (resolves the receipt/cashier printer with `resolveTicketPrinter(setting, 'receipt')`, forces 80mm, and prints with `escpos.print()` direct like `/test`). The POS `ReportDialog.vue` sends `{ title, subtitle, sections, rows, printTime, operator }` to this endpoint instead of `window.print()`
 - **多台打印機注意事項**：每台網絡打印機須有獨立 IP（多台共用同一 IP 會在並發連線時互相超時）。`print()` 內部已實作**按 `ip:port` 的 FIFO 打印佇列**（集中式 spooler：同一 IP 嚴格串行、印完即釋放），並用 `client.end(data, cb)` 等資料 flush 完成才 resolve（不依賴對端 close），加上超時 8s（`printer.timeout` 可覆寫）與自動重試 1 次（應對打印伺服器空閒喚醒）。所有打印一律走 `printWithFailover(...)`（主機 → `fallbackTo` 備援機 → 第一台 `role=kitchen` 通用機），切勿 fire-and-forget 並發連線（`/serveDish` 曾漏 `await` 導致起菜時燒味/小食超時）。
 - kitchen 檔口票、receipt/serving/qrcode、傳菜總台/預結單（`expeditor`/`zone`）與印單小票（`print`）均已走 `printWithFailover` 備援跳飛；僅 `routes/api/printer.js` 的測試打印 `/test`、`/testFallback` 與營業報表 `/printReport` 仍用 `escpos.print()` 直連，以正確反映單機狀態。
-- **CUPS/IPP 佇列**：`plugins/Cups.js` 封裝 IPP 客戶端（`printRaw`/`listJobs`/`cancelJob`，經 `CUPS_URL` 連 CUPS，底層使用 `@sealsystems/ipp`，`ipp.Printer(uri)` + `printer.execute('Print-Job'|'Get-Jobs'|'Cancel-Job', ...)`），`routes/api/print.js` 提供 `POST /api/print`（送 Raw ESC/POS buffer）、`GET /api/print/jobs`（查佇列）、`POST /api/print/jobs/:id/cancel`（取消塞單），解決多台工作站同時發單卡單/漏單。後台 `PrintMonitor.vue`（`/admin/printmonitor`）監控佇列。`docker-compose.yml` 新增 `cups` 服務（`olbat/cupsd`，631 埠，`cups_config`/`cups_spool` volume），app 以 `CUPS_URL=http://cups:631` 直連。`plugins/Printer.js` 已接上 CUPS：`rawPrint` 依 `printer.queue` 分流 — 有 `queue` 走 `rawPrintViaCups`（`cups.printRaw(queue, buffer)`，含錢箱 kick 與重試），無 `queue` 回退 `rawPrintViaTcp`（`net.connect`）。`hasTarget(p)` 判斷 `queue` 或 `ip` 任一存在、`targetKey(p)` 用於 FIFO 串行佇列與跳飛比對；`resolvePrinter`/`resolveTerminalPrinter`/`resolveTicketPrinter`/`resolveZonePrinter`/`printWithFailover`/`openDrawerByTerminal` 均以 `hasTarget`/`queue` 識別。`Printer` 模型（station/zone/default/centralPrint）與 `PosTerminal` 印表機設定（`PrinterConfigSchema`）均新增 `queue` 欄位，後台 `Printer.vue`/`PosTerminal.vue` 提供 CUPS 佇列輸入框。CUPS 認證：`printRaw`/`listJobs`/`cancelJob`/`listPrinters` 均帶 HTTP Basic（`CUPS_USER`+`CUPS_PASSWORD`）；`Cancel-Job` 因 CUPS 預設 policy 要求 `@OWNER/@SYSTEM`，無認證會回 401。列印 `job-name` 採 `檔口|枱號|單號`（`buildJobName`，由 `printWithFailover`/`print`/`rawPrint`/`rawPrintViaCups` 一路傳遞 `meta`（訂單）），`listJobs` 回傳 `createdAt`（`time-at-creation`）與 `completedAt`（`time-at-completed`），`PrintMonitor.vue` 據此顯示「檔口/枱號/單號」欄並把時間拆成「開始時間/結束時間」。
+- **BullMQ 出單佇列**：`plugins/printQueue.js` 以 BullMQ + Redis 實作出單微服務——每台打印機獨立 Queue（concurrency=1）嚴格串行、任務持久化於 Redis、失敗指數退避重試、attempts 耗盡後跳飛備援機；Redis 連線異常時降級回 in-memory FIFO 不漏單。`printQueue.enqueuePrint(setting, printer, data, meta)`（未設 `REDIS_URL` 時沿用既有 in-memory FIFO + 跳飛；需同步結果傳 `{ wait: true }`）。後台 `PrintMonitor.vue`（`/admin/printmonitor`）內嵌 Bull Board（`/admin/queues/`）監控佇列，經 `POST /api/print/queueui-session` 建立會話 cookie 免 Basic Auth。
 
 ### License (授權)
 - Offline signed license keys (`ORDERSYS.<payload>.<HMAC-SHA256>`) in `utils/license.js`; payload fields: `mid` (machine ID), `exp` (expiry, omit for perpetual), `customer`, `edition`, `features`
@@ -166,8 +172,7 @@ node server.js                    # Serves static files from client/dist/
 
 ## Configuration
 
-- `config/config.js`: MongoDB URI (default `mongodb://localhost:27017/orderSYS`, override with `MONGO_URI`), JWT secret (override with `JWT_SECRET`; required in `production`, dev fallback `0x3E5-dev-only`), and license signing secret (override with `LICENSE_SECRET`; required in `production`)
-- `plugins/Cups.js` env: `CUPS_URL` (default `http://cups:631`), `CUPS_USER` (default `admin`), `CUPS_PASSWORD` (HTTP Basic 認證密碼，供 `Cancel-Job` 使用；`olbat/cupsd` 鏡像內建管理員為 `print`/`print`，會忽略 `CUPS_USER_ADMIN`/`CUPS_USER_PASSWORD` env)
+- `config/config.js`: PostgreSQL 連線字串 `pgConn` (default `postgres://ordersys:ordersys@127.0.0.1:5432/ordersys`, override with `PG_CONN`), JWT secret (override with `JWT_SECRET`; required in `production`, dev fallback `0x3E5-dev-only`), Redis 連線 `redisURL` (`REDIS_URL`), 可寫資料目錄 `publicDir` (`PUBLIC_DIR`)
 - `client/vue.config.js`: Dev server proxy for `/api`, `/goods`, `/shop` to backend (includes WebSocket proxy)
 - `client/src/main.js`: Socket.IO connection URL (uses `window.location.protocol` + `window.location.hostname:3000`)
 - Font: Noto Sans TC (思源黑體) is self-hosted at `client/public/fonts/` (variable woff2, 105 files, 6 weights 400–900); loaded via `client/public/fonts/noto-sans-tc.css` linked in `client/public/index.html`. The font stack in `client/public/css/reset.css` and `client/src/views/pos/Index.vue` (`#pos`) is Apple fonts (macOS) → `Noto Sans TC` (Windows/Linux) → `Microsoft JhengHei` → `Arial` → `sans-serif`.
@@ -186,11 +191,11 @@ node server.js                    # Serves static files from client/dist/
 Multi-stage build (`Dockerfile`): stage 1 builds Vue frontend, stage 2 runs Node.js backend serving `client/dist/`. Source code is baked into the image, so code changes require a rebuild.
 
 ```bash
-docker compose up -d --build  # Rebuild + start app (port 3000) + MongoDB (port 27017) + CUPS (port 631)
+docker compose up -d --build  # Rebuild + start app (port 3000) + PostgreSQL (port 5432) + Redis (port 6379)
 docker compose down
 ```
 
-Direct (non-Docker) install instructions for Windows/Linux/macOS (PM2/systemd, MongoDB 7.0) are in `DEPLOY.md`.
+Direct (non-Docker) install instructions for Windows/Linux/macOS (PM2/systemd, PostgreSQL) are in `DEPLOY.md`.
 
 ## Notes
 

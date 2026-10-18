@@ -67,10 +67,7 @@ export default {
             { path: '/admin/category', name: '分類管理' },
             { path: '/admin/commodity', name: '貨品管理' },
             { path: '/admin/combo', name: '套餐管理' },
-            { path: '/admin/bundle', name: '撞餐設定' },
-            { path: '/admin/bundlegroup', name: '跟餐組別管理' },
-            { path: '/admin/maingroup', name: '主菜組別管理' },
-            { path: '/admin/matchingrule', name: '撞餐規則' },
+            { path: '/admin/bundlemanage', name: '撞餐管理' },
             { path: '/admin/modcode', name: '改碼管理' },
             { path: '/admin/department', name: '部門管理' },
             { path: '/admin/jumpprice', name: '貨價跳價錢設定' }
@@ -148,6 +145,7 @@ export default {
           isGroup: true,
           children: [
             { path: '/admin/shop', name: '店鋪信息' },
+            { path: '/admin/shopupload', name: '店舖上傳設定' },
             { path: '/admin/printer', name: '打印機設置' },
             { path: '/admin/printmonitor', name: '列印佇列監控' },
             { path: '/admin/user', name: '個人信息' },

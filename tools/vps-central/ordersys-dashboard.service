@@ -1,0 +1,12 @@
+[Unit]
+Description=orderSYS central dashboard
+After=network.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/ordersys-central/web/server.py
+Restart=always
+Environment=PORT=888
+
+[Install]
+WantedBy=multi-user.target
