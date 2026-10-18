@@ -178,6 +178,10 @@ const DEFAULT_FORMAT = {
       title: { show: true, size: 3, align: 'center' },
       shopName: { show: true, size: 3, align: 'center' },
       deskNo: { show: true, size: 3, align: 'center' },
+      barcode: { show: false, size: 1 },
+      orderNo: { show: true, size: 1, align: 'left' },
+      date: { show: true, size: 1, align: 'left' },
+      time: { show: true, size: 1, align: 'left' },
       hint: { show: true, size: 1, align: 'center' },
       qr: { show: true, size: 3 },
       divider1: { show: true, type: '-' }
@@ -309,7 +313,7 @@ const DEFAULT_ORDER = {
   serving: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'date', 'divider2', 'items', 'items2', 'items3', 'divider3', 'remark', 'time', 'sendTime', 'footer', 'divider4'],
   print: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'barcode', 'deskNoBig', 'orderNo', 'seq', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'remark', 'time', 'sendTime', 'date', 'divider4'],
   qrcode: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'waiter', 'divider2', 'time', 'divider3'],
-  tableqr: ['shopName', 'title', 'deskNo', 'hint', 'divider1'],
+  tableqr: ['shopName', 'title', 'deskNo', 'barcode', 'orderNo', 'date', 'time', 'hint', 'divider1'],
   chase: ['title', 'shopName', 'divider1', 'deskNo', 'orderNo', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'remark', 'time', 'sendTime', 'divider4'],
   receipt: ['shopName', 'title', 'address', 'phone', 'divider1', 'deskNo', 'deskNoBig', 'orderNo', 'reprint', 'waiter', 'sendWaiter', 'people', 'divider2', 'items', 'items2', 'items3', 'divider3', 'total', 'serviceCharge', 'grandTotal', 'payMethod', 'remark', 'time', 'sendTime', 'date', 'divider4', 'footer'],
   pantry: ['shopName', 'title', 'divider1', 'deskNo', 'orderNo', 'divider2', 'message', 'divider3', 'waiter', 'time', 'divider4'],
@@ -954,7 +958,7 @@ function comboLine (item, state) {
 }
 
 // 生成 QR Code 光柵圖像（GS v 0），moduleSize 為每個模塊的點數
-// 點餐碼 QR 尺寸：1=小 2=正常 3=中 4=大 5=特大（對應模塊尺寸 2/3/4/5/6）
+// 點餐碼 QR 尺寸：1=小 2=正常 3=中 4=大 5=特大 6=最大（對應模塊尺寸 2/3/4/5/6/7）
 function qrModuleSize (size) {
   switch (size) {
     case 1: return 2
@@ -962,6 +966,7 @@ function qrModuleSize (size) {
     case 3: return 4
     case 4: return 5
     case 5: return 6
+    case 6: return 7
     default: return 4
   }
 }
@@ -970,14 +975,16 @@ function buildQRImage (text, moduleSize = 3) {
   try {
     const q = qrcode.create(text, { errorCorrectionLevel: 'M' })
     const size = q.modules.size
-    const big = size * moduleSize
+    // 單一 GS v 0 光柵高度上限（與 BAND_H 一致）：超過時縮小模塊尺寸，避免打印機截斷 QR 使內容缺損（token 被截斷會導致點餐碼掃碼失效）
+    const ms = size * moduleSize > 255 ? Math.max(1, Math.floor(255 / size)) : moduleSize
+    const big = size * ms
     const bytesPerRow = Math.ceil(big / 8)
     const rows = []
     for (let y = 0; y < big; y++) {
       const row = Buffer.alloc(bytesPerRow)
-      const my = Math.floor(y / moduleSize)
+      const my = Math.floor(y / ms)
       for (let x = 0; x < big; x++) {
-        const mx = Math.floor(x / moduleSize)
+        const mx = Math.floor(x / ms)
         if (q.modules.data[my * size + mx]) {
           row[Math.floor(x / 8)] |= 0x80 >> (x % 8)
         }
@@ -1206,6 +1213,8 @@ function buildTexts (setting, order, fmt, type) {
   let timeText
   if (type === 'serving' || type === 'receipt' || type === 'print') {
     timeText = moment(d).format('HH:mm')
+  } else if (type === 'tableqr') {
+    timeText = moment(d).format('HH:mm:ss')
   } else if (isFull) {
     timeText = moment(d).format('YYYY-MM-DD HH:mm:ss')
   } else {
@@ -1682,8 +1691,8 @@ async function buildPrintOrder (setting, order) {
     const hasDesk = desk !== undefined && desk !== null && String(desk) !== '' && String(desk) !== '0'
     if (hasDesk) {
       const barSize = Number(f('barcode').size || 1)
-      const moduleWidth = barSize >= 3 ? 4 : barSize === 2 ? 3 : 2
-      const barHeight = barSize >= 3 ? 96 : barSize === 2 ? 72 : 48
+      const moduleWidth = (barSize >= 3 ? 4 : barSize === 2 ? 3 : 2) * 2
+      const barHeight = Math.round((barSize >= 3 ? 96 : barSize === 2 ? 72 : 48) * 1.5)
       parts.push(qrLine(buildBarcodeImage(String(desk), moduleWidth, barHeight), setting.paperWidth))
     }
   }
@@ -1794,6 +1803,17 @@ async function buildTableQrOrder (setting, order, url) {
   const f = (key) => fields[key] || { show: true, size: 1, align: 'left' }
   const w = lineWidthOf(setting.paperWidth)
   const parts = [initPrinter(setting)]
+  // 枱號條碼：固定印在單據最左上角（掃描跳枱用），僅熱敏打印機支援
+  if (f('barcode').show && setting.tech !== 'dot') {
+    const desk = order && order.deskNo
+    const hasDesk = desk !== undefined && desk !== null && String(desk) !== '' && String(desk) !== '0'
+    if (hasDesk) {
+      const barSize = Number(f('barcode').size || 1)
+      const moduleWidth = (barSize >= 3 ? 4 : barSize === 2 ? 3 : 2) * 2
+      const barHeight = Math.round((barSize >= 3 ? 96 : barSize === 2 ? 72 : 48) * 1.5)
+      parts.push(qrLine(buildBarcodeImage(String(desk), moduleWidth, barHeight), setting.paperWidth))
+    }
+  }
   if (setting.logoEnabledQrcode) {
     const logoData = await buildLogoImage(setting)
     if (logoData.length) parts.push(qrLine(logoData, setting.paperWidth))
@@ -1803,6 +1823,9 @@ async function buildTableQrOrder (setting, order, url) {
     shopName: (p) => { if (f('shopName').show) p.push(textLine(setting.shopName || '歡迎光臨', { align: 'center', width: Math.floor(w / 2), doubleWidth: true, doubleHeight: true })) },
     title: (p) => { if (f('title').show && fmt.title) p.push(fieldLine(fmt.title, f('title'), w)) },
     deskNo: (p) => { if (f('deskNo').show) p.push(fieldLine(`台號：${deskLabel(setting, order)}`, f('deskNo'), w)) },
+    orderNo: (p) => { if (f('orderNo').show && order.orderNo) p.push(fieldLine(`訂單號：${order.orderNo}`, f('orderNo'), w)) },
+    date: (p) => { if (f('date').show) p.push(fieldLine(texts.date, f('date'), w)) },
+    time: (p) => { if (f('time').show) p.push(fieldLine(texts.time, f('time'), w)) },
     hint: (p) => { if (f('hint').show) p.push(fieldLine('請用手機相機掃描下單', f('hint'), w)) },
     qr: (p) => {
       if (f('qr').show === false) return
@@ -1811,8 +1834,8 @@ async function buildTableQrOrder (setting, order, url) {
       p.push(feedLines(1))
     }
   }
-  // QR 為固定內容（非可調整欄位），固定置於 hint 之前
-  const orderList = fmt.order.slice()
+  // QR 為固定內容（非可調整欄位），固定置於 hint 之前；條碼已提前印在左上角，跳過避免重複
+  const orderList = (fmt.order || []).filter(k => k !== 'barcode')
   const hintIdx = orderList.indexOf('hint')
   orderList.splice(hintIdx >= 0 ? hintIdx : orderList.length, 0, 'qr')
   Object.assign(renderers, extraRenderers(f, w, order, 'tableqr', setting))

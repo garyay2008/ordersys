@@ -172,7 +172,7 @@
         </div>
         <div class="list-table-wrap">
         <el-table :data="historyOrders" stripe size="small" height="100%" v-loading="historyLoading" empty-text="暫無往日單據">
-          <el-table-column prop="orderNo" label="訂單號" width="185"></el-table-column>
+          <el-table-column prop="orderNo" label="單號" width="185"></el-table-column>
           <el-table-column label="枱號" width="80">
             <template slot-scope="scope">{{ scope.row.deskNo || scope.row.zone || '—' }}</template>
           </el-table-column>
@@ -754,7 +754,7 @@
     <!-- 反結賬授權 -->
     <el-dialog title="反結賬授權" :visible.sync="unsettleAuth.show" width="360px" custom-class="pos-dialog" append-to-body>
       <p style="margin:0 0 12px; color:#606266;">反結賬將沖銷付款並把訂單退回未結，需經理（等級3）以上授權</p>
-      <el-input v-model="unsettleAuth.orderNo" placeholder="訂單號" size="medium" style="margin-bottom: 12px;" :readonly="!!unsettleAuth.order"></el-input>
+      <el-input v-model="unsettleAuth.orderNo" placeholder="單號" size="medium" style="margin-bottom: 12px;" :readonly="!!unsettleAuth.order"></el-input>
       <el-input v-model="unsettleAuth.no" placeholder="經理編號" size="medium" style="margin-bottom: 12px;"></el-input>
       <el-input v-model="unsettleAuth.password" type="password" placeholder="密碼" size="medium" show-password @keyup.enter.native="unsettleLogin"></el-input>
       <div slot="footer">
@@ -5947,7 +5947,7 @@ export default {
       if (!targetOrder) {
         const orderNo = (this.unsettleAuth.orderNo || '').trim()
         if (!orderNo) {
-          this.$message({ type: 'warning', message: '請輸入訂單號' })
+          this.$message({ type: 'warning', message: '請輸入單號' })
           return
         }
         targetOrder = this.settledTodayOrders.find(o => String(o.orderNo) === String(orderNo))

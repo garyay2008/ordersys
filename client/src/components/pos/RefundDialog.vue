@@ -6,7 +6,7 @@
           <el-table-column label="枱號" width="80">
             <template slot-scope="scope">{{ scope.row.deskNo ? scope.row.deskNo : (scope.row.zone || '外賣') }}</template>
           </el-table-column>
-          <el-table-column prop="orderNo" label="訂單號" width="175"></el-table-column>
+          <el-table-column prop="orderNo" label="單號" width="175"></el-table-column>
           <el-table-column label="品項" min-width="220">
             <template slot-scope="scope">
               <div v-for="(it, i) in (scope.row.order || [])" :key="i" class="void-item">
@@ -25,7 +25,7 @@
       </el-tab-pane>
       <el-tab-pane label="更改已結帳單" name="refund">
         <el-table :data="refundDialog.finished" size="mini" :max-height="420">
-          <el-table-column prop="orderNo" label="訂單號" width="165"></el-table-column>
+          <el-table-column prop="orderNo" label="單號" width="165"></el-table-column>
           <el-table-column label="枱號" width="70">
             <template slot-scope="scope">{{ scope.row.deskNo ? scope.row.deskNo : (scope.row.zone || '外賣') }}</template>
           </el-table-column>

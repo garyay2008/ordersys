@@ -27,6 +27,7 @@
                   <el-option label="中" :value="3"></el-option>
                   <el-option label="大" :value="4"></el-option>
                   <el-option label="特大" :value="5"></el-option>
+                  <el-option label="最大" :value="6"></el-option>
                 </el-select>
                 <span style="margin-left: 8px; font-size: 12px; color: #909399;">點餐碼二維碼尺寸</span>
               </el-form-item>
@@ -402,7 +403,7 @@ export default {
             { key: 'address', label: '地址' },
             { key: 'phone', label: '電話' },
             { key: 'deskNo', label: '台號' },
-            { key: 'barcode', label: '條碼（掃描枱號）' },
+            { key: 'barcode', label: '枱號條碼' },
             { key: 'deskNoBig', label: '大台號' },
             { key: 'orderNo', label: '訂單號' },
             { key: 'reprint', label: '重印' },
@@ -440,6 +441,10 @@ export default {
             { key: 'title', label: '標題' },
             { key: 'shopName', label: '餐廳名稱' },
             { key: 'deskNo', label: '台號' },
+            { key: 'barcode', label: '枱號條碼' },
+            { key: 'orderNo', label: '單號' },
+            { key: 'date', label: '日期' },
+            { key: 'time', label: '時間' },
             { key: 'hint', label: '提示文字' }
           ]
         },
@@ -509,8 +514,8 @@ export default {
       return this.activeTab === 'print'
     },
     barcodePreview () {
-      if (this.activeTab !== 'print') return null
-      const fmt = this.format.print || {}
+      if (this.activeTab !== 'print' && this.activeTab !== 'tableqr') return null
+      const fmt = this.format[this.activeTab] || {}
       const fields = fmt.fields || {}
       const f = fields.barcode || { show: false }
       if (f.show === false) return null
@@ -603,7 +608,7 @@ export default {
           message: '5 號枱加單一碗白飯',
           reason: '原因：顧客取消',
           hint: '請用手機相機掃描下單',
-          time: (tab.key === 'cancelitem') ? '取消時間：23:59' : ((tab.key === 'serving' || tab.key === 'receipt' || tab.key === 'print') ? '開單時間：23:59' : (tab.key === 'qrcode' ? '開單時間：2026-08-26 23:59:59' : '開單時間：08-26 23:59')),
+          time: (tab.key === 'cancelitem') ? '取消時間：23:59' : ((tab.key === 'serving' || tab.key === 'receipt' || tab.key === 'print') ? '開單時間：23:59' : (tab.key === 'qrcode' ? '開單時間：2026-08-26 23:59:59' : (tab.key === 'tableqr' ? '開單時間：23:59:59' : '開單時間：08-26 23:59'))),
           sendTime: '送單時間：13:05:22',
           footer: this.footer || '謝謝惠顧，歡迎再次光臨'
         }
@@ -617,6 +622,8 @@ export default {
         const line = order[i]
         // 印單小票的「大台號」固定顯示在最左上角（Logo 之上），預覽時於上方單獨渲染，此處跳過避免重複
         if (this.activeTab === 'print' && (line.key === 'deskNoBig' || line.key === 'barcode')) continue
+        // 點餐碼的「枱號條碼」亦於上方單獨渲染（掃描跳枱用）
+        if (this.activeTab === 'tableqr' && line.key === 'barcode') continue
         if (line.isDivider) {
           const opt = fields[line.key] || { show: true, type: '-' }
           if (opt.show === false) continue

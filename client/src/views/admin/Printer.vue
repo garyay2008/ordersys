@@ -541,11 +541,15 @@ const DEFAULT_FORMAT = {
   },
   tableqr: {
     title: '掃碼點餐',
-    order: ['shopName', 'title', 'deskNo', 'hint', 'divider1'],
+    order: ['shopName', 'title', 'deskNo', 'barcode', 'orderNo', 'date', 'time', 'hint', 'divider1'],
     fields: {
       title: { show: true, size: 3, align: 'center' },
       shopName: { show: true, size: 3, align: 'center' },
       deskNo: { show: true, size: 3, align: 'center' },
+      barcode: { show: false, size: 1 },
+      orderNo: { show: true, size: 1, align: 'left' },
+      date: { show: true, size: 1, align: 'left' },
+      time: { show: true, size: 1, align: 'left' },
       hint: { show: true, size: 1, align: 'center' },
       qr: { show: true, size: 3 },
       divider1: { show: true, type: '-' }
