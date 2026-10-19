@@ -162,6 +162,8 @@ export default {
     },
     onSentPanelToggle (visible) {
       this.sentPanelVisible = visible
+      // 每次打開「查看訂單」都重新拉取一次，避免 POS 退菜/加單後 QR 單據停留在舊狀態
+      if (visible) this.fetchSentItems()
     },
     selectMenu (index, event) {
       // 把原生自帶的click事件過濾掉
@@ -417,6 +419,10 @@ export default {
         .catch(() => {
           this.sentItems = []
         })
+    },
+    onVisibilityChange () {
+      // 手機背景/鎖屏時 socket 可能斷線錯過 tableUpdate，回到頁面時重新同步單據
+      if (document.visibilityState === 'visible') this.fetchSentItems()
     },
     loadMenu () {
       // 快取優先：僅首次進入（goods 尚為空）時先顯示上次菜單，背景刷新。
@@ -692,6 +698,11 @@ export default {
     const menu = this.loadMenu()
     // 進入點餐版面時先同步一次「查看單據」，不依賴其他 API 是否載入完成
     this.fetchSentItems()
+    document.addEventListener('visibilitychange', this.onVisibilityChange)
+    // 前景時每 10 秒輪詢同步一次，確保 POS 退菜/取消後手機「查看單據」能即時跟上
+    this._sentPollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') this.fetchSentItems()
+    }, 10000)
     Promise.all([qs, pos, menu, mods, modCats, rules, bgs])
       .then(() => {
         // QR 功能設定：隱藏沽清品項
@@ -702,6 +713,10 @@ export default {
         })
       })
       .catch(err => console.log(err))
+  },
+  beforeDestroy () {
+    document.removeEventListener('visibilitychange', this.onVisibilityChange)
+    if (this._sentPollTimer) clearInterval(this._sentPollTimer)
   },
   components: {
     ShopCart,
