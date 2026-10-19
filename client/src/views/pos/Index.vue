@@ -3331,7 +3331,7 @@ export default {
         if (item.voidStatus === 1) return
         sent.push(this.toCartItem(item, o.orderNo, idx))
       }))
-      const sig = arr => arr.map(i => `${String(i._orderNo || '')}|${String(i._orderIdx ?? '')}|${i.name}|${i.count}|${i.dishStatus || ''}|${i.price}|${i.bundlePrice ? '1' : '0'}|${i.customPrice || 0}|${i.discount || 1}`).join(';;')
+      const sig = arr => arr.map(i => `${String(i._orderNo || '')}|${String(i._orderIdx ?? '')}|${i.name}|${i.count}|${i.dishStatus || ''}`).join(';;')
       if (sig(current.filter(i => i.sent)) === sig(sent)) return
       this.rebuildTableCart(no)
     },
@@ -6552,8 +6552,6 @@ export default {
         free: i.free,
         customPrice: i.customPrice,
         bundlePrice: !!i.bundlePrice,
-        bundleMain: !!i.bundleMain,
-        bundleOrigPrice: i.bundleOrigPrice || 0,
         mandatory: !!i.mandatory,
         contents: i.contents,
         comboId: i.comboId,
