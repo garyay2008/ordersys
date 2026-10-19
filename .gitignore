@@ -124,8 +124,11 @@ __pycache__/
 # 備份檔 / 原始資料 / 截圖（不進版本控制）
 *.bak
 *.bak_*
+*.bak.*
+*.bak2.*
 *.archive
 backup_*.json
+public/central-backup*.json
 full_backup_*.json
 full_backup_*.gz
 full_backup_*.zip
