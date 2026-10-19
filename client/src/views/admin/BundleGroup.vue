@@ -88,7 +88,8 @@ export default {
     commodityLabel (c) {
       if (!c) return ''
       const parts = []
-      if (c.plu) parts.push(c.plu)
+      const no = c.code || c.plu || ''
+      if (no) parts.push(no)
       if (c.name) parts.push(c.name)
       parts.push('$' + (Number(c.price) || 0))
       return parts.join(' · ')
