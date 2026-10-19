@@ -113,6 +113,15 @@ node server.js                    # Serves static files from client/dist/
 - **MainGroup / BundleGroup**: 主菜組別 / 跟餐組別 (撞餐規則用的分組) — each a simple `name` (required) list; commodities link via `Commodity.mainGroupId` / `Commodity.bundleGroupId`, and combos can also be 主食側 via `Combo.mainGroupId` (套餐也可當主菜參與撞餐規則)
 - **MatchingRule**: 撞餐規則獨立規則表 (cross-item price matching without defining a combo) — `name`, `enabled`, `priority`, `triggerGroupIds` (主菜組別，空=任意主食), `bundleGroupIds` (跟餐組別，空=任意跟餐，跟餐價取自 `addonPrice`), `addonPrice` (跟餐價 — 撞餐時跟餐的加購價，主食保留原價), `effectiveTime`. POS and QR each convert rules into virtual combos (`matchingRuleCombos`; 主食 `upgradePrice=item.price`、跟餐 `upgradePrice=addonPrice` 或組別價、`combo.price=0`，即總價=主食原價+跟餐價) and feed `computeBundles`
 
+### 撞餐 Backend Authoritative Recalc (`plugins/bundle.js`)
+
+撞餐（跟餐價）後端權威重算——POS/QR 送來的價格僅為預覽，存檔前以主檔為準：
+
+- `recomputeBundlePricing(items)` → `{ items, delta }`：對所有 `bundlePrice` 品項重算 `price` 並補齊 `bundleOrigPrice`；若對應規則/組別已停用或不存在則復原原價（清掉 `bundlePrice`/`bundleOrigPrice`）。用於 submit 新單與列印/送單前的防禦性校正。
+- `rebalanceBundlePairs(items)`：一配一對稱重算。1) 跟餐多於主食 → 自尾端復原多餘跟餐為原價；2) 主食多於跟餐 → 把「有跟餐組別且尚未撞餐」的飲品重新標回跟餐價。**主食/跟餐依 MatchingRule 主檔判定**（`triggerGroupIds`×`Commodity.mainGroupId`、`bundleGroupIds`），不依賴前端 `bundleMain` 標記。
+- `routes/api/order.js` 在 **submit 加單合併、transfer(轉桌/合併)、split(來源剩餘+拆出+目標合併)、voidItem(退菜)** 後都呼叫 `rebalanceBundlePairs` 並用 `itemSubtotal` 重算 `totalPrice`；order.js 僅留一層薄 wrapper。
+- POS/mpos 送單 mapping 必須帶 `bundleMain` / `bundleOrigPrice`（mpos 另帶 `bundleGroupId`/`mainGroupId`/`bundlePrice`）。曾因 POS `mapOrderItems` 漏帶 `bundleMain`，導致後加主食未被標主食、一配一計算錯誤（跟餐多收）。
+
 ### POS Frontend (`client/src/views/pos/Index.vue`)
 - Main POS container (table status grid, ordering panel, cart, checkout flow); dialogs/panels are extracted into `client/src/components/pos/` (e.g. `PayDialog`, `ComboDialog`, `TableDialog`, `TransferDialog`, `BatchPrintDialog`)
 - Table operations: merge, split, transfer, add/release tables; hold/recall (掛單/叫回); sold-out settings with inventory-based auto-sold-out
