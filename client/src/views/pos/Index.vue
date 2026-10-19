@@ -2029,7 +2029,7 @@ export default {
           if (!groups[c]) groups[c] = []
           groups[c].push(m)
         })
-        return Object.keys(groups).map(k => ({ name: k, items: groups[k], minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
+        return Object.keys(groups).map(k => ({ name: k, items: groups[k], mandatory: (catMap[k] && catMap[k].mandatory) || false, minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
       }
       // 依目前編輯品項的改碼類別過濾；商品未設定改碼則不顯示任何改碼群組
       const item = idx != null ? this.cart[idx] : null
@@ -2049,7 +2049,7 @@ export default {
         if (!groups[c]) groups[c] = []
         groups[c].push(m)
       })
-      return Object.keys(groups).map(k => ({ name: k, items: groups[k], minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
+      return Object.keys(groups).map(k => ({ name: k, items: groups[k], mandatory: (catMap[k] && catMap[k].mandatory) || false, minSelect: (catMap[k] && catMap[k].minSelect) || 0, maxSelect: (catMap[k] && catMap[k].maxSelect) || 0 }))
     }
   },
   watch: {

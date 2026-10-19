@@ -57,7 +57,7 @@ export default {
           // 預設只展開「有必選改碼」的群組，其餘收起，避免畫面太長
           this.openGroups = {}
           this.modGroups.forEach((g, gi) => {
-            this.$set(this.openGroups, gi, forceOpen || (g.items || []).some(m => m.mandatory))
+            this.$set(this.openGroups, gi, forceOpen || g.mandatory || (g.items || []).some(m => m.mandatory))
           })
         })
       }
