@@ -785,20 +785,19 @@ async function importIsm (xmlMap, options = {}) {
   result.modGroups = modGroupUsed.length
   result.departments = deptDocs.length
 
-  // 11. 檔口（加入 Printer.printers，依名稱去重）
+  // 11. 檔口（清掉舊的邏輯檔口，保留實體打印機，再加入本次匯入的檔口）
   let printer = await Printer.findOne().exec()
   if (!printer) printer = await Printer.create({ printers: [] })
-  const existing = new Set((printer.printers || []).map(p => p.name))
-  const merged = [...(printer.printers || [])]
+  const kept = (printer.printers || []).filter(p => !(p.role === 'kitchen' && !p.ip))
+  const existing = new Set(kept.map(p => p.name))
+  const merged = [...kept]
   for (const name of Object.values(stationName)) {
     if (existing.has(name)) continue
     existing.add(name)
     merged.push({ name, role: 'kitchen', ip: '', port: 9100 })
   }
-  if (merged.length !== (printer.printers || []).length) {
-    printer.printers = merged
-    await printer.save()
-  }
+  printer.printers = merged
+  await printer.save()
   result.stations = stationName ? Object.keys(stationName).length : 0
 
   // 12. 預設折扣 → PosSetting.discountOptions
