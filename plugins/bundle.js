@@ -128,4 +128,130 @@ async function recomputeBundlePricing (items) {
   return { items, delta }
 }
 
-module.exports = { isEffectiveNow, loadBundleContext, addonPriceOf, recomputeBundlePricing }
+// 對稱重算撞餐（一配一防線）：用於分單/轉桌/合併/退菜/加單後重新校正。
+// 1) 跟餐(bundlePrice) 多於主食 → 復原多餘跟餐為原價
+// 2) 主食多於跟餐 → 把有跟餐組別且尚未撞餐的飲品重新標回跟餐價
+// 主食/跟餐依 MatchingRule 主檔判定（不依賴前端 bundleMain 標記），避免前端漏標導致一配一失效。
+async function rebalanceBundlePairs (items) {
+  if (!Array.isArray(items) || !items.length) return items
+
+  const ctx = await loadBundleContext()
+
+  // 商品主檔 map（原價 + bundleGroupId/mainGroupId 兜底）
+  const ids = []
+  items.forEach(it => {
+    if (!it) return
+    const id = it.commodityId || it._id
+    if (id) ids.push(String(id))
+  })
+  const validIds = [...new Set(ids)].filter(isValidObjectId)
+  const comMap = {}
+  if (validIds.length) {
+    const commodities = await Commodity.find({ _id: { $in: validIds } }).lean().exec()
+    commodities.forEach(c => { comMap[String(c._id)] = c })
+  }
+
+  const isVoided = it => !it || it.voidStatus === 1
+  const origPriceOf = it => {
+    if (Number(it.bundleOrigPrice) > 0) return Number(it.bundleOrigPrice)
+    const id = it.commodityId || it._id
+    const com = id ? comMap[String(id)] : null
+    if (com && Number(com.price) > 0) return Number(com.price)
+    return Number(it.price) || 0
+  }
+
+  // 依生效規則收集「主食觸發組」與「跟餐組」，供主檔判定角色
+  const triggerGroups = new Set()
+  const bundleGroups = new Set()
+  ;(ctx.activeRules || []).forEach(r => {
+    ;(r.triggerGroupIds || []).forEach(g => triggerGroups.add(String(g)))
+    ;(r.bundleGroupIds || []).forEach(g => bundleGroups.add(String(g)))
+  })
+  const mainGroupOf = it => {
+    if (!it) return ''
+    if (it.mainGroupId) return String(it.mainGroupId)
+    const com = comMap[String(it.commodityId || it._id)]
+    return com && com.mainGroupId ? String(com.mainGroupId) : ''
+  }
+  // 主食：mainGroupId 被某規則 triggerGroupIds 引用（bundleMain 標記僅為兜底）
+  const isMainItem = it => {
+    if (!it || it.bundlePrice) return false
+    const gid = mainGroupOf(it)
+    return !!gid && triggerGroups.has(gid)
+  }
+  const addonOf = it => {
+    const id = it && (it.commodityId || it._id)
+    return addonPriceOf(it, id ? comMap[String(id)] : null, ctx)
+  }
+  const countUnits = list => {
+    let mains = 0
+    let addons = 0
+    for (const it of list) {
+      if (isVoided(it)) continue
+      if (isMainItem(it) || it.bundleMain) mains += (it.count || 1)
+      if (it.bundlePrice) addons += (it.count || 1)
+    }
+    return { mains, addons }
+  }
+
+  // 1) 復原多餘跟餐（自尾端往前）
+  let { mains, addons } = countUnits(items)
+  let excess = addons - mains
+  if (excess > 0) {
+    for (let i = items.length - 1; i >= 0 && excess > 0; i--) {
+      const it = items[i]
+      if (isVoided(it) || !it.bundlePrice) continue
+      const cnt = it.count || 1
+      const orig = origPriceOf(it)
+      if (cnt <= excess) {
+        it.price = orig
+        it.customPrice = 0
+        it.bundlePrice = false
+        delete it.bundleOrigPrice
+        excess -= cnt
+      } else {
+        const kept = Object.assign({}, it, { count: cnt - excess })
+        const reverted = Object.assign({}, it, { count: excess, price: orig, customPrice: 0, bundlePrice: false })
+        delete reverted.bundleOrigPrice
+        items.splice(i, 1, kept, reverted)
+        excess = 0
+      }
+    }
+  }
+
+  // 2) 重新撞餐：主食多於跟餐時，把有跟餐組別的未撞飲品標回跟餐價
+  ;({ mains, addons } = countUnits(items))
+  // 先依主檔補標主食（bundleMain），供後續一配一對照
+  for (const it of items) {
+    if (isVoided(it) || it.bundleMain || it.bundlePrice) continue
+    if (isMainItem(it)) it.bundleMain = true
+  }
+  let freeMains = Math.max(0, mains - addons)
+  if (freeMains > 0) {
+    for (let i = 0; i < items.length && freeMains > 0; i++) {
+      const it = items[i]
+      if (isVoided(it) || it.bundleMain || it.bundlePrice) continue
+      const addon = addonOf(it)
+      if (addon == null) continue
+      const cnt = it.count || 1
+      const orig = origPriceOf(it)
+      const take = Math.min(freeMains, cnt)
+      if (take >= cnt) {
+        it.price = addon
+        it.customPrice = 0
+        it.bundlePrice = true
+        it.bundleOrigPrice = orig
+        freeMains -= cnt
+      } else {
+        const bundled = Object.assign({}, it, { count: take, price: addon, customPrice: 0, bundlePrice: true, bundleOrigPrice: orig })
+        const rest = Object.assign({}, it, { count: cnt - take })
+        items.splice(i, 1, bundled, rest)
+        freeMains -= take
+      }
+    }
+  }
+
+  return items
+}
+
+module.exports = { isEffectiveNow, loadBundleContext, addonPriceOf, recomputeBundlePricing, rebalanceBundlePairs }

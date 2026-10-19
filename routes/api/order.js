@@ -534,11 +534,9 @@ router.post('/submit', async (req, res) => {
     if (existing) {
       const newItems = data.order || []
       existing.order = mergeOrderItems(existing.order, newItems)
-      existing.totalPrice = Math.round(((existing.totalPrice || 0) + (data.totalPrice || 0)) * 100) / 100
-      // 撞餐跟餐後加（主食先送）：補標主食，供分單一配一防線對照
-      if (newItems.some(it => it && it.bundlePrice)) {
-        await markUnpairedMains(existing.order)
-      }
+      // 撞餐一配一防線：加單合併後對稱重算（跟餐多→復原原價，主食多→重新撞餐）
+      existing.order = await rebalanceBundlePairs(existing.order)
+      existing.totalPrice = Math.round(existing.order.reduce((sum, i) => sum + itemSubtotal(i), 0) * 100) / 100
       if (data.remark) existing.remark = data.remark
       if (data.source === 'qr' || data.source === 'extension' || data.source === 'kiosk') existing.source = data.source
       // 人數：每次送單同步最新人數（後廚小票於下單時列印，需於加單前帶上 pax）
@@ -1250,83 +1248,10 @@ function mergeOrderItems (existing, newItems) {
   return out
 }
 
-// 統計撞餐主食/跟餐個數（一配一）
-function countBundleUnits (items) {
-  let mainUnits = 0
-  let addonUnits = 0
-  for (const it of items || []) {
-    if (!it) continue
-    if (it.bundleMain) mainUnits += (it.count || 1)
-    if (it.bundlePrice) addonUnits += (it.count || 1)
-  }
-  return { mainUnits, addonUnits }
-}
-
-// 查回跟餐原價：優先用送單時記下的 bundleOrigPrice，缺則回查貨品主檔
-async function resolveOrigPrice (item) {
-  if (Number(item.bundleOrigPrice) > 0) return Number(item.bundleOrigPrice)
-  try {
-    const id = item.commodityId || item._id
-    if (id && isValidObjectId(id)) {
-      const com = await Commodity.findById(id).lean().exec()
-      if (com && Number(com.price) > 0) return Number(com.price)
-    }
-  } catch (e) { /* 忽略，fallback 到目前價 */ }
-  return Number(item.price) || 0
-}
-
-// 分單防線：確保跟餐（bundlePrice）個數不超過同枱主食（bundleMain）個數，
-// 多出的跟餐復原為原價（一配一）
+// 分單/轉桌/合併/退菜/加單防線：對稱重算撞餐（一配一）
+// 跟餐多於主食 → 復原多餘跟餐；主食多於跟餐 → 重新撞餐
 async function rebalanceBundlePairs (items) {
-  const { mainUnits, addonUnits } = countBundleUnits(items)
-  let excess = addonUnits - mainUnits
-  if (excess <= 0) return items
-  for (let i = items.length - 1; i >= 0 && excess > 0; i--) {
-    const it = items[i]
-    if (!it || !it.bundlePrice) continue
-    const cnt = it.count || 1
-    const orig = await resolveOrigPrice(it)
-    if (cnt <= excess) {
-      it.price = orig
-      it.customPrice = 0
-      it.bundlePrice = false
-      delete it.bundleOrigPrice
-      excess -= cnt
-    } else {
-      // 部分數量復原：拆成「保留跟餐價」與「復原原價」兩條
-      const kept = Object.assign({}, it, { count: cnt - excess })
-      const reverted = Object.assign({}, it, { count: excess, price: orig, customPrice: 0, bundlePrice: false })
-      delete reverted.bundleOrigPrice
-      items.splice(i, 1, kept, reverted)
-      excess = 0
-    }
-  }
-  return items
-}
-
-// 補標撞餐主食（_sentMain：主食先送、跟餐後加），供分單一配一防線對照
-async function markUnpairedMains (items) {
-  const { mainUnits, addonUnits } = countBundleUnits(items)
-  let deficit = addonUnits - mainUnits
-  if (deficit <= 0) return
-  const MatchingRule = require('../../models/MatchingRule')
-  const rules = await MatchingRule.find({ enabled: { $ne: false } }).lean().exec()
-  const candidates = (items || []).filter(it => {
-    if (!it || it.bundleMain || it.bundlePrice || it.comboId) return false
-    return rules.some(r => {
-      const trigGroups = (r.triggerGroupIds || []).map(String)
-      if (trigGroups.length) {
-        const gid = String(it.mainGroupId || '')
-        return !!gid && trigGroups.includes(gid)
-      }
-      return true
-    })
-  })
-  for (const it of candidates) {
-    if (deficit <= 0) break
-    it.bundleMain = true
-    deficit -= (it.count || 1)
-  }
+  return bundle.rebalanceBundlePairs(items)
 }
 
 // 防禦性校正：列印/送單前對已存訂單重算撞餐跟餐價；價錢有變則同步總價並回傳 true（由呼叫方 save）
@@ -1365,8 +1290,8 @@ router.post(
       }
       const target = await Order.findOne(Object.assign({ state: 0 }, deskNoQuery(to))).exec()
       if (target) {
-        target.order = (target.order || []).concat(source.order || [])
-        target.totalPrice = Math.round(((target.totalPrice || 0) + (source.totalPrice || 0)) * 100) / 100
+        target.order = await rebalanceBundlePairs((target.order || []).concat(source.order || []))
+        target.totalPrice = Math.round(target.order.reduce((sum, i) => sum + itemSubtotal(i), 0) * 100) / 100
         target.transferredFrom = from
         target.fromAction = action
         await target.save()
@@ -1462,8 +1387,8 @@ router.post(
       await source.save()
       const target = await Order.findOne(Object.assign({ state: 0 }, deskNoQuery(to))).exec()
       if (target) {
-        target.order = (target.order || []).concat(toMove)
-        target.totalPrice = Math.round(((target.totalPrice || 0) + movedTotal) * 100) / 100
+        target.order = await rebalanceBundlePairs((target.order || []).concat(toMove))
+        target.totalPrice = Math.round(target.order.reduce((s, it) => s + itemSubtotal(it), 0) * 100) / 100
         target.transferredFrom = from
         target.fromAction = 'split'
         await target.save()
@@ -1708,7 +1633,7 @@ router.post(
         // 全退：原位標記退菜（不刪除，供取消報表追溯）
         Object.assign(items[idx], voidFields)
       }
-      order.order = items
+      order.order = await rebalanceBundlePairs(items)
       order.markModified('order')
       order.totalPrice = Math.round(items.reduce((sum, i) => sum + itemSubtotal(i), 0) * 100) / 100
       await order.save()

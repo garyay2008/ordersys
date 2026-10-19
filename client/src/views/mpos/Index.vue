@@ -608,7 +608,12 @@ export default {
         spec: i.spec,
         mods: i.mods || [],
         isCombo: !!i.isCombo,
-        contents: i.contents
+        contents: i.contents,
+        bundleGroupId: i.bundleGroupId || '',
+        mainGroupId: i.mainGroupId || '',
+        bundlePrice: !!i.bundlePrice,
+        bundleMain: !!i.bundleMain,
+        bundleOrigPrice: i.bundleOrigPrice || 0
       }))
       const totalPrice = Math.max(0, Math.round(submitItems.reduce((s, i) => s + (i.price || 0) * (i.count || 1), 0) * 100) / 100)
       this.submitting = true
