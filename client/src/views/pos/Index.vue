@@ -702,7 +702,7 @@
     <split-dept-dialog :dept-dialog="deptSplitDialog" :departments="departments" @confirm="confirmDeptSplit"></split-dept-dialog>
 
     <!-- 沽清設定（售罄清單） -->
-    <sold-out-dialog :sold-out-dialog="soldOutDialog" :goods="goods"></sold-out-dialog>
+    <sold-out-dialog :sold-out-dialog="soldOutDialog" :goods="goods" :mod-codes="modCodeListAll" @change="onSoldOutChange"></sold-out-dialog>
 
     <!-- 批量列印 -->
     <batch-print-dialog :batch-print-dialog="batchPrintDialog" :batch-checked="batchChecked" :rows="batchPrintRows" @confirm="confirmBatchPrint"></batch-print-dialog>
@@ -2707,20 +2707,43 @@ export default {
       }
       const selections = {}
       const mods = {}
-      ;(combo.groups || []).forEach((g, gi) => { this.$set(selections, gi, []) })
-      ;(item.contents || []).forEach(c => {
-        const gi = c.gi != null ? c.gi : 0
-        let ii = c.ii != null ? c.ii : -1
-        const group = combo.groups && combo.groups[gi]
-        if (!group || !group.items[ii]) {
-          ii = group && group.items ? group.items.findIndex(it => (it.commodityId && String(it.commodityId) === String(c.commodityId)) || it.name === c.name) : -1
-        }
-        if (ii >= 0) {
-          selections[gi].push(ii)
-          if ((c.mods || []).length) this.$set(mods, gi + ':' + ii, (c.mods || []).slice())
+      ;(combo.groups || []).forEach((g, gi) => {
+        if (g.fixed) {
+          this.$set(selections, gi, (g.items || []).map((it, i) => (it.soldOut ? -1 : i)).filter(i => i >= 0))
+        } else {
+          this.$set(selections, gi, [])
         }
       })
+      ;(item.contents || []).forEach(c => {
+        if (!c) return
+        const rawName = (c.name || '').trim()
+        if (!rawName) return
+        let gi = -1
+        let ii = -1
+        for (let x = 0; x < (combo.groups || []).length; x++) {
+          const idx = ((combo.groups[x].items) || []).findIndex(it => this.matchComboBase(rawName, it.name))
+          if (idx >= 0) { gi = x; ii = idx; break }
+        }
+        if (gi < 0 || ii < 0) return
+        if (selections[gi].indexOf(ii) < 0) selections[gi].push(ii)
+        const groupItem = combo.groups[gi] && combo.groups[gi].items && combo.groups[gi].items[ii]
+        const mgMods = (groupItem && groupItem.modGroups)
+          ? groupItem.modGroups.reduce((acc, mg) => acc.concat(mg.mods || []), [])
+          : []
+        const restored = (c.mods || []).map(cm => {
+          const hit = mgMods.find(mm => (mm.modCodeId && String(mm.modCodeId) === String(cm.id || cm.modCodeId)) || (mm.name && mm.name === cm.name))
+          return hit ? { id: hit.modCodeId || hit.name, name: hit.name, price: hit.price || 0, station: hit.station || '' } : { id: (cm.id || cm.modCodeId || cm.name), name: cm.name, price: cm.price || 0, station: cm.station || '' }
+        })
+        if (restored.length) this.$set(mods, gi + ':' + ii, restored)
+      })
       this.comboDialog = { show: true, combo, selections, mods, skipPick: false, editIndex: index, mainDish: null, mainDishAddon: !!item._mainDishAddon }
+    },
+    matchComboBase (fullName, baseName) {
+      if (!fullName || !baseName) return false
+      if (fullName === baseName) return true
+      if (fullName.indexOf(baseName + ' x') === 0) return true
+      if (fullName.indexOf(baseName + '→') === 0) return true
+      return false
     },
     loadModCodes () {
       this.$axios.get('/api/modcode/list', { params: { channel: 'pos' } }).then(res => { this.modCodeList = res.data || [] }).catch(() => { this.modCodeList = [] })
@@ -3949,16 +3972,20 @@ export default {
     openSoldOut () {
       const list = []
       const seen = new Set()
+      const push = f => {
+        const key = String(f._id)
+        if (seen.has(key)) return
+        seen.add(key)
+        list.push({ _id: f._id, plu: f.plu || f.code || '', code: f.code || '', name: f.name, soldOut: true, stock: f.stock === undefined || f.stock === null ? -1 : f.stock, _isCombo: !!f._isCombo, _isModCode: !!f._isModCode })
+      }
       this.goods.forEach(g => {
-        (g.foods || []).forEach(f => {
-          if (!f.soldOut) return
-          const key = String(f._id)
-          if (seen.has(key)) return
-          seen.add(key)
-          list.push({ _id: f._id, plu: f.plu || f.code || '', code: f.code || '', name: f.name, soldOut: true, stock: f.stock === undefined || f.stock === null ? -1 : f.stock, _isCombo: !!f._isCombo, _isModCode: !!f._isModCode })
-        })
+        (g.foods || []).forEach(f => { if (f.soldOut) push(f) })
       })
+      ;(this.modCodeListAll || []).forEach(m => { if (m.soldOut) push({ _id: m._id, plu: m.code || '', code: m.code || '', name: m.name, soldOut: true, stock: -1, _isCombo: false, _isModCode: true }) })
       this.soldOutDialog = { show: true, keyword: '', list, showItemPicker: false, pickerKeyword: '' }
+    },
+    onSoldOutChange () {
+      this.loadModCodes()
     },
     isSoldOutable (food) {
       if (!food) return false
@@ -7292,7 +7319,7 @@ export default {
 .back-to-board-alert .el-message-box__message{ font-size:18px; color:#1f2937; line-height:1.6; }
 .back-to-board-alert .el-message-box__message p{ margin:0; }
 .back-to-board-alert .el-message-box__status.el-icon-warning{ font-size:30px !important; top:50%; transform:translateY(-50%); }
-.back-to-board-alert .el-message-box__btns{ padding:8px 24px 22px; }
+.back-to-board-alert .el-message-box__btns{ padding:8px 24px 22px; display:flex; flex-direction:row-reverse; justify-content:center; gap:12px; }
 .back-to-board-alert .el-message-box__btns .el-button{ font-size:17px; padding:11px 32px; border-radius:12px; font-weight:700; }
 .back-to-board-alert .el-message-box__btns .el-button--primary{ background:linear-gradient(135deg,#f56c6c,#e64545); border-color:#e64545; }
 .back-to-board-alert .el-message-box__btns .el-button--primary:hover{ background:linear-gradient(135deg,#e64545,#d13838); border-color:#d13838; color:#fff; }

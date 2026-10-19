@@ -1,5 +1,11 @@
 <template>
-  <el-dialog :title="tableDialog.title" :visible.sync="tableDialog.show" :fullscreen="tableDialog.mode === 'split'" :width="tableDialog.mode === 'split' ? '66.6%' : '440px'" top="0vh" :custom-class="tableDialog.mode === 'split' ? 'split-table-dialog table-op-dialog pos-dialog' : 'table-op-dialog pos-dialog'" append-to-body>
+  <el-dialog :title="tableDialog.title" :visible.sync="tableDialog.show" :fullscreen="tableDialog.mode === 'split'" :width="tableDialog.mode === 'split' ? '66.6%' : '440px'" top="0vh" :show-close="tableDialog.mode !== 'split'" :custom-class="tableDialog.mode === 'split' ? 'split-table-dialog table-op-dialog pos-dialog' : 'table-op-dialog pos-dialog'" append-to-body>
+    <template slot="title" v-if="tableDialog.mode === 'split'">
+      <div class="split-dialog-header">
+        <span>{{ tableDialog.title }} <span class="split-dialog-src">來源枱：{{ selectedTable || '—' }}</span></span>
+        <button type="button" class="split-close-btn" @click="$emit('close')">✕</button>
+      </div>
+    </template>
     <template v-if="tableDialog.mode === 'merge'">
       <el-form label-width="90px" size="small">
         <div class="merge-hint">把目前枱（{{ selectedTable }}）併入以下枱號，此枱保留</div>
@@ -37,8 +43,8 @@
               </div>
             </div>
             <div class="split-arrows">
-              <el-button size="mini" icon="el-icon-arrow-right" @click="$emit('move-right')"></el-button>
-              <el-button size="mini" icon="el-icon-arrow-left" @click="$emit('move-left')"></el-button>
+              <el-button size="mini" type="primary" icon="el-icon-arrow-right" title="搬去新枱" @click="$emit('move-right')"></el-button>
+              <el-button size="mini" type="warning" icon="el-icon-arrow-left" title="搬回舊枱" @click="$emit('move-left')"></el-button>
             </div>
             <div class="split-panel">
               <div class="split-title">新枱（移至枱 {{ tableDialog.toTable || '—' }}）<span class="split-subtotal">${{ splitRightTotal }}</span></div>
@@ -134,4 +140,8 @@ export default {
 .split-step-btn:hover{ border-color: #409eff; }
 .split-step-val{ min-width: 18px; text-align: center; font-weight: bold; }
 .split-arrows{ display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.split-dialog-header{ display: flex; align-items: center; justify-content: space-between; width: 100%; font-size: 18px; font-weight: 700; color: #303133; line-height: 24px; }
+.split-dialog-src{ font-size: 15px; font-weight: 600; color: #409eff; margin-left: 10px; }
+.split-close-btn{ border: none; background: transparent; color: #f56c6c; font-size: 28px; font-weight: 700; cursor: pointer; line-height: 1; padding: 0 4px; }
+.split-close-btn:hover{ color: #c0392b; }
 </style>

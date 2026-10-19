@@ -25,7 +25,10 @@
               </div>
               <span v-for="m in mg.mods" :key="m.modCodeId || m.name" class="mod-chip"
                     :class="{active: comboMods(gi, selIdx).some(x => x && (x.id || x.name) === (m.modCodeId || m.name)), soldout: m.soldOut}"
-                    @click="comboToggleMod(gi, selIdx, m)">
+                    title="長按沽清／重售"
+                    @click="comboToggleMod(gi, selIdx, m)"
+                    @mousedown="startModPress(m)" @mouseup="cancelModPress" @mouseleave="cancelModPress"
+                    @touchstart="startModPress(m)" @touchend="cancelModPress" @touchmove="cancelModPress">
                 {{ m.name }}<template v-if="(m.price || 0) > 0"> +${{ m.price }}</template><span v-if="m.soldOut" class="mod-chip-soldout">沽清</span>
               </span>
             </div>
@@ -46,6 +49,9 @@ export default {
   name: 'comboDialog',
   props: {
     comboDialog: { type: Object, required: true }
+  },
+  data () {
+    return { modPressTimer: null, modPressed: false }
   },
   methods: {
     comboSelected (gi, ii) {
@@ -83,6 +89,7 @@ export default {
       return mods.filter(x => x && (mg.mods || []).some(mm => (mm.modCodeId || mm.name) === (x.id || x.name))).length
     },
     comboToggleMod (gi, selIdx, m) {
+      if (this.modPressed) { this.modPressed = false; return }
       if (m.soldOut) { this.$message({ type: 'warning', message: `「${m.name}」已沽清` }); return }
       const key = gi + ':' + selIdx
       const mods = (this.comboDialog.mods[key] || []).slice()
@@ -99,6 +106,32 @@ export default {
         mods.push({ id: m.modCodeId || '', name: m.name, price: m.price || 0, station: m.station || '' })
       }
       this.$set(this.comboDialog.mods, key, mods)
+    },
+    startModPress (m) {
+      if (!m || !m.modCodeId) return
+      this.cancelModPress()
+      this.modPressTimer = setTimeout(() => {
+        this.modPressed = true
+        this.toggleModSoldOut(m)
+        setTimeout(() => { this.modPressed = false }, 800)
+      }, 600)
+    },
+    cancelModPress () {
+      if (this.modPressTimer) { clearTimeout(this.modPressTimer); this.modPressTimer = null }
+    },
+    toggleModSoldOut (m) {
+      const soldOut = !m.soldOut
+      const action = soldOut ? '沽清' : '重售'
+      this.$confirm(`是否將改碼「${m.name}」${action}？`, action, { type: 'warning', confirmButtonText: `確認${action}`, cancelButtonText: '取消' })
+        .then(() => {
+          this.$axios.post('/api/modcode/soldout', { _id: m.modCodeId, soldOut })
+            .then(res => {
+              this.$message({ type: 'success', message: res.data })
+              this.$set(m, 'soldOut', soldOut)
+            })
+            .catch(err => this.$message({ type: 'error', message: err.response ? err.response.data : '更新失敗' }))
+        })
+        .catch(() => {})
     }
   }
 }

@@ -47,7 +47,7 @@
       <div class="soldout-tip">
         <el-alert type="info" :closable="false" show-icon>
           <template slot="title">
-            瀏覽在售商品，點擊將其新增至售罄列表（可依 PLU / item code / 品項名搜尋）。
+            瀏覽在售商品／改碼，點擊將其加入售罄列表（可依 PLU / item code / 品項名搜尋）。
           </template>
         </el-alert>
       </div>
@@ -74,7 +74,8 @@ export default {
   name: 'soldOutDialog',
   props: {
     soldOutDialog: { type: Object, required: true },
-    goods: { type: Array, default: () => [] }
+    goods: { type: Array, default: () => [] },
+    modCodes: { type: Array, default: () => [] }
   },
   computed: {
     soldOutFiltered () {
@@ -100,6 +101,13 @@ export default {
           all.push({ _id: f._id, name: f.name, plu: f.plu || f.code || '', code: f.code || '', soldOut: false, stock: f.stock === undefined || f.stock === null ? -1 : f.stock, _isCombo: !!f._isCombo, _isModCode: !!f._isModCode })
         })
       })
+      ;(this.modCodes || []).forEach(m => {
+        if (m.soldOut) return
+        const key = String(m._id)
+        if (seen.has(key)) return
+        seen.add(key)
+        all.push({ _id: m._id, name: m.name, plu: m.code || '', code: m.code || '', soldOut: false, stock: -1, _isCombo: false, _isModCode: true })
+      })
       if (!kw) return all
       return all.filter(x => String(x.name || '').toLowerCase().indexOf(kw) >= 0 || String(x.plu || '').toLowerCase().indexOf(kw) >= 0 || String(x.code || '').toLowerCase().indexOf(kw) >= 0)
     }
@@ -120,8 +128,13 @@ export default {
           this.$message({ type: 'success', message: food.soldOut ? `「${food.name}」已加入售罄清單` : `「${food.name}」已從售罄清單移除` })
           this.syncSoldOutToFood(food)
           // 同步更新左側清單
-          const row = this.soldOutDialog.list.find(x => x._id === food._id)
-          if (row) this.$set(row, 'soldOut', food.soldOut)
+          const row = this.soldOutDialog.list.find(x => String(x._id) === String(food._id))
+          if (row) {
+            this.$set(row, 'soldOut', food.soldOut)
+          } else if (food.soldOut) {
+            this.soldOutDialog.list.push({ _id: food._id, plu: food.plu || food.code || '', code: food.code || '', name: food.name, soldOut: true, stock: food.stock === undefined || food.stock === null ? -1 : food.stock, _isCombo: !!food._isCombo, _isModCode: !!food._isModCode })
+          }
+          this.$emit('change', food)
         })
         .catch(() => this.$message({ type: 'error', message: '更新失敗' }))
     },

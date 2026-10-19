@@ -41,8 +41,8 @@
     </div>
 
     <div slot="footer">
-      <el-button @click="cancelItemDialog.show = false">取 消</el-button>
       <el-button type="danger" :loading="cancelItemDialog.loading" :disabled="!hasSelection" @click="$emit('confirm')">確認退菜</el-button>
+      <el-button @click="cancelItemDialog.show = false">取 消</el-button>
     </div>
   </el-dialog>
 </template>
