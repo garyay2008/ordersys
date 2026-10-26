@@ -1,0 +1,111 @@
+#!/bin/bash
+set -euo pipefail
+
+APP_DIR="${APP_DIR:-/opt/orderSYS}"
+REPO_URL="${REPO_URL:-https://github.com/garyay2008/ordersys.git}"
+PG_USER="ordersys"
+PG_PASS="ordersys"
+PG_DB="ordersys"
+REDIS_VERSION="7.2.5"
+REDIS_DIR="$HOME/redis"
+NODE_MAJOR="18"
+
+echo "==> 1/8 安裝系統套件（需要 sudo）"
+sudo apt-get update
+sudo apt-get install -y curl git build-essential openssl ca-certificates iproute2 cron
+sudo systemctl enable --now cron 2>/dev/null || true
+
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
+  sudo apt-get install -y nodejs
+fi
+
+if ! command -v psql >/dev/null 2>&1; then
+  sudo apt-get install -y postgresql postgresql-contrib
+  sudo systemctl enable --now postgresql
+fi
+
+echo "==> 2/8 建立 PostgreSQL 資料庫／使用者"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'" | grep -q 1 || \
+  sudo -u postgres psql -c "CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';"
+sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${PG_DB}'" | grep -q 1 || \
+  sudo -u postgres psql -c "CREATE DATABASE ${PG_DB} OWNER ${PG_USER};"
+
+echo "==> 3/8 取得 orderSYS 程式"
+sudo mkdir -p "$APP_DIR"
+sudo chown "$USER:$USER" "$APP_DIR"
+if [ -d "$APP_DIR/.git" ]; then
+  cd "$APP_DIR" && git pull --ff-only
+else
+  git clone "$REPO_URL" "$APP_DIR"
+fi
+
+echo "==> 4/8 安裝後端與前端"
+cd "$APP_DIR"
+npm install
+cd client && npm install && npm run build && cd ..
+
+echo "==> 5/8 安裝 Redis ${REDIS_VERSION}（使用者空間，AOF 持久化）"
+if [ ! -x "$REDIS_DIR/bin/redis-server" ]; then
+  cd "$HOME"
+  curl -fsSL -o "redis-${REDIS_VERSION}.tar.gz" "https://download.redis.io/releases/redis-${REDIS_VERSION}.tar.gz"
+  tar xzf "redis-${REDIS_VERSION}.tar.gz"
+  cd "redis-${REDIS_VERSION}"
+  make -j"$(nproc)" MALLOC=libc >/tmp/redis-make.log 2>&1
+  make PREFIX="$REDIS_DIR" install >>/tmp/redis-make.log 2>&1
+  cd "$HOME"
+  rm -rf "redis-${REDIS_VERSION}" "redis-${REDIS_VERSION}.tar.gz"
+fi
+mkdir -p "$REDIS_DIR/data"
+if [ ! -f "$REDIS_DIR/redis.password" ]; then
+  openssl rand -hex 16 > "$REDIS_DIR/redis.password"
+  chmod 600 "$REDIS_DIR/redis.password"
+fi
+REDIS_PASS="$(cat "$REDIS_DIR/redis.password")"
+cat > "$REDIS_DIR/redis.conf" <<EOF
+bind 127.0.0.1
+protected-mode yes
+port 6379
+daemonize yes
+pidfile $REDIS_DIR/redis.pid
+logfile $REDIS_DIR/redis.log
+dir $REDIS_DIR/data
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+requirepass $REDIS_PASS
+EOF
+chmod 600 "$REDIS_DIR/redis.conf"
+"$REDIS_DIR/bin/redis-server" "$REDIS_DIR/redis.conf" || true
+sleep 1
+"$REDIS_DIR/bin/redis-cli" -a "$REDIS_PASS" ping
+
+echo "==> 6/8 建立後端啟動腳本"
+cat > "$APP_DIR/start-backend.sh" <<EOF
+#!/bin/bash
+export REDIS_URL="redis://:${REDIS_PASS}@127.0.0.1:6379"
+cd "$APP_DIR"
+exec node server.js
+EOF
+chmod +x "$APP_DIR/start-backend.sh"
+
+echo "==> 7/8 設定開機自動啟動"
+( crontab -l 2>/dev/null | grep -v 'orderSYS/start-backend.sh' | grep -v 'redis/bin/redis-server' || true; \
+  echo "@reboot sleep 5; $REDIS_DIR/bin/redis-server $REDIS_DIR/redis.conf"; \
+  echo "@reboot sleep 10; $APP_DIR/start-backend.sh >> /tmp/ordersys.log 2>&1" ) | crontab -
+
+echo "==> 8/8 啟動 orderSYS"
+pkill -f '^node server.js$' || true
+sleep 1
+setsid nohup "$APP_DIR/start-backend.sh" > /tmp/ordersys.log 2>&1 < /dev/null &
+disown 2>/dev/null || true
+sleep 4
+ss -ltn | grep ':3000' || true
+echo
+echo "✅ 安裝完成。"
+echo "   1) 本機開啟：http://127.0.0.1:3000"
+echo "   2) 其他分機/平板連：http://<主機IP>:3000"
+echo "   3) 第一次使用先開：http://<主機IP>:3000/init 建立管理員帳號"
+echo "   4) Redis 密碼存在 $REDIS_DIR/redis.password（勿外流）"
