@@ -36,7 +36,7 @@ npm run build                     # Production build to client/dist/
 npm run lint                      # ESLint check
 
 # Production
-cd client && npm run build && cd ..
+npm run build:client              # = cd client && npm run build
 node server.js                    # Serves static files from client/dist/
 ```
 
@@ -100,7 +100,7 @@ node server.js                    # Serves static files from client/dist/
 - **AuditLog**: records sensitive admin/POS actions for traceability
 - **ClockRecord**: staff shift clock-in/out records
 - **BusinessDay**: financial-day tracking keyed by `date` (YYYY-MM-DD, derived from `businessDayCutoff`); `status` (open/closed), `startingCash`/`countedCash`, `paidOuts`/`receiveds` arrays (代支/代收, via `POST /api/businessday/paidOut` and `/received`), and a `snapshot` of the day's totals (incl. `paidOutTotal`/`receivedTotal`) written at settlement (`POST /api/businessday/close`). Orders reference it via `businessDayId`; `shiftId` is a dangling ref (no Shift model exists yet)
-- **Shop, Table, Zone, Printer, PosTerminal, Amount, QrSetting**: shop profile, table/zone layout, printer config, terminal identifiers, seedable payment/order types, and QR-ordering display toggles
+- **Shop, Table, Zone, Printer, PosTerminal, Amount, QrSetting**: shop profile, table/zone layout, printer config, terminal identifiers, seedable payment/order types, and QR-ordering display toggles (`showImages`/`showDescribe`/`showStock`/`showModPrices`/`showSoldOutItems`/`showNotice`/`showDetail`/`showDiscount`/`showSpecs`/`qrEnabled`/`theme`/`fontScale`/`baseUrl`/`welcomeImage`). `QrSetting.qrEnabled` 是 QR 點餐總開關（停用時客人端顯示「點餐已暫停」遮罩，且 `commodity/menu`、`combo/menu` 的 `channel=qr` 回 403 防繞過；`routes/api/qrsetting.js` `/get` 會把舊資料的 `null` 補回 `true`）
 - **ModCode / ModCodeCategory**: customization modifiers (走蔥/加辣/加價) with `price`, `specs` (價格1～價格10 multi-price; 價格1 is the base, 「填滿」 copies it into 2–10), `station` (print routing), `mandatory`, `maxSelect`, and POS `quickKey`; grouped under mod-code categories (admin page `ModCode.vue` uses a split layout — left category list, right filtered mod codes; deleting a category is blocked while it still has mod codes). `ModCodeCategory` has `mandatory` (自動彈出) — when true, POS auto-opens the mod dialog on adding an item whose `modCategories` includes that category; set from ISM `lookup_header.compulsory='1'` during `importism` and editable in the category add/edit dialog
 - **Combo**: combo meals — `type` `select` (選單式合菜) / `fixed` (固定式桌菜), with `groups` of min/max-selectable items, each item supporting `modifiers` and `substitutes`. Also carries 撞餐 fields: `mainDishes` (主食綁定，點擊自動帶出跟餐), `autoPopup`, `autoBundle` (`false`=不參與 / `true`=強制 / 未設=依類型), `bundlePriority`, `mainGroupId` (主菜組別 `MainGroup._id`，撞餐規則主食側記認；套餐也可當主食側參與撞餐，見 `isBundlableItem`), `effectiveTime` (撞餐時段), and `noPrintComboName` (不列印套餐名 — 後廚/服務票種拆成子品項獨立打印，收據/印單小票仍保留套餐名)
 - **Category**: recursive tree of menu categories (`parentId` nesting, `no` sibling sort, `rootOrder` top-level POS order); per-category `department`, `serviceModes`, `channels` (pos/qr), `effectiveTime` (POS/QR scheduling), `slots` (time-slot grouping), `colorFrom`/`colorTo`/`textColor` (tab gradient), and `modCategories` (array of `ModCodeCategory.name`, managed via the category UI). Deleting a category is guarded against orphaned children/items; sibling reorder uses `POST /api/category/swapOrder`. The admin page (`Category.vue`) has a right-panel tab switch 內容 / **POS 預覽** — the POS preview renders a POS register mock (top-level gradient pills → drill-down child tiles → food list) derived from `parentId` + `GET /api/category/:id/items`, filtered to POS-channel + `active` categories, mirroring `catPillStyle`/`catTileStyle` in the POS `Index.vue` (no backend changes)
@@ -205,7 +205,25 @@ docker compose up -d --build  # Rebuild + start app (port 3000) + PostgreSQL (po
 docker compose down
 ```
 
-Direct (non-Docker) install instructions for Windows/Linux/macOS (PM2/systemd, PostgreSQL) are in `DEPLOY.md`.
+Direct (non-Docker) install instructions for Windows/Linux/macOS (PM2/systemd, PostgreSQL) are in `DEPLOY.md`. Printer setup steps are in `Printer-Setup.md`.
+
+## Central Host Operations (192.168.3.85)
+
+Production central host (SSH `gary@192.168.3.85`) notes:
+
+- Source tree: `/home/gary/orderSYS`. Deploy = copy changed files → rebuild client → restart backend.
+- Backend start script: `/home/gary/orderSYS/start-backend.sh` — reads the Redis password from `~/redis/redis.password`, exports `REDIS_URL`, then `exec node server.js`.
+- Redis 7.2.5 is installed **user-space** at `/home/gary/redis` (no sudo available), with `appendonly yes` + `appendfsync everysec` (AOF) and `requirepass`; password is in `/home/gary/redis/redis.password` (chmod 600).
+- Cron `@reboot`: starts Redis first (`sleep 5`), then the backend (`sleep 10`), so print queue + API return after a reboot.
+- Desktop POS Electron app runs from `/opt/orderSYS/ordersys` and connects to `127.0.0.1:3000`.
+
+```bash
+# Deploy + restart example
+cd /path/to/local/clone
+tar -cf - <changed files> | ssh gary@192.168.3.85 'cd /home/gary/orderSYS && tar -xf -'
+ssh gary@192.168.3.85 'cd /home/gary/orderSYS && npm run build:client'
+ssh gary@192.168.3.85 'pkill -f "^node server.js$" || true; sleep 1; setsid nohup /home/gary/orderSYS/start-backend.sh > /tmp/ordersys.log 2>&1 < /dev/null & disown'
+```
 
 ## Notes
 
