@@ -30,7 +30,10 @@ const DEFAULTS = {
 router.get('/get', (req, res) => {
   QrSetting.findOne()
     .then(result => {
-      res.json(Object.assign({}, DEFAULTS, result ? result.toObject() : {}))
+      const merged = Object.assign({}, DEFAULTS, result ? result.toObject() : {})
+      // 舊資料尚未寫入 qrEnabled 時，資料庫會回傳 null；這裡補回預設 true
+      if (merged.qrEnabled == null) merged.qrEnabled = true
+      res.json(merged)
     })
     .catch(err => {
       console.log(err)
