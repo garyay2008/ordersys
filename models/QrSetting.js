@@ -16,6 +16,7 @@ module.exports = makeModel(
     baseUrl: 'text',
     welcomeImage: 'text',
     showSpecs: 'bool',
+    qrEnabled: 'bool',
     date: 'timestamp'
   },
   'qrsetting',
@@ -33,6 +34,7 @@ module.exports = makeModel(
     baseUrl: '',
     welcomeImage: '',
     showSpecs: false,
+    qrEnabled: true,
     date: () => new Date()
   }
 )

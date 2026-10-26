@@ -5,6 +5,10 @@
                 <span>QR 功能設定（客人手機點餐版面）</span>
             </div>
             <el-form :model="qrForm" label-width="150px" inline>
+                <el-form-item label="啟用 QR 點餐">
+                    <el-switch v-model="qrForm.qrEnabled" active-text="開啟" inactive-text="停用"></el-switch>
+                    <div class="qr-setting-tip">停用後，客人手機掃碼版面會顯示「點餐已暫停」，且無法取得菜單。</div>
+                </el-form-item>
                 <el-form-item label="顯示貨品圖片">
                     <el-switch v-model="qrForm.showImages" active-text="開啟" inactive-text="關閉"></el-switch>
                 </el-form-item>
@@ -165,6 +169,7 @@ export default {
         showDetail: true,
         showDiscount: true,
         showSpecs: false,
+        qrEnabled: true,
         fontScale: 1,
         theme: 'orange',
         baseUrl: '',
@@ -205,6 +210,7 @@ export default {
             showDetail: d.showDetail !== false,
             showDiscount: d.showDiscount !== false,
             showSpecs: !!d.showSpecs,
+            qrEnabled: d.qrEnabled !== false,
             fontScale: Number(d.fontScale) || 1,
             theme: d.theme || 'orange',
             baseUrl: d.baseUrl || '',

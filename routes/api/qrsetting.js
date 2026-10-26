@@ -20,7 +20,8 @@ const DEFAULTS = {
   theme: 'orange',
   baseUrl: '',
   welcomeImage: '',
-  showSpecs: false
+  showSpecs: false,
+  qrEnabled: true
 }
 
 // $route GET api/qrsetting/get

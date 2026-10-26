@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const passport = require('passport')
 const Combo = require('../../models/Combo')
+const QrSetting = require('../../models/QrSetting')
 const socketio = require('../../plugins/SocketIO')
 
 function emitMenuChanged () {
@@ -148,6 +149,12 @@ router.post(
 // @access public
 router.get('/menu', async (req, res) => {
   const channel = req.query.channel === 'qr' ? 'qr' : (req.query.channel === 'pos' ? 'pos' : null)
+  if (channel === 'qr') {
+    const qrSetting = await QrSetting.findOne().lean().exec()
+    if (qrSetting && qrSetting.qrEnabled === false) {
+      return res.status(403).send('QR 點餐已停用')
+    }
+  }
   const query = { soldOut: false }
   if (channel === 'qr') query.showOnQr = { $ne: false }
   else if (channel === 'pos') query.showOnPos = { $ne: false }

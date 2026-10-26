@@ -1,6 +1,12 @@
 <template>
     <div id="userShop" :style="themeVars">
-        <div v-if="invalid" class="invalid-mask">
+        <div v-if="disabled" class="invalid-mask">
+            <div class="invalid-card">
+                <h1 class="invalid-title">點餐已暫停</h1>
+                <p class="invalid-text">本店目前暫停手機點餐，請直接向店員下單。</p>
+            </div>
+        </div>
+        <div v-else-if="invalid" class="invalid-mask">
             <div class="invalid-card">
                 <h1 class="invalid-title">此點餐碼已失效</h1>
                 <p class="invalid-text">請向店員索取新的點餐碼，或重新掃描枱面上的點餐碼。</p>
@@ -42,6 +48,7 @@ export default {
       started: false,
       theme: 'orange',
       invalid: false,
+      disabled: false,
       checking: true
     }
   },
@@ -73,6 +80,7 @@ export default {
         this.fontScale = scale || 1
         this.applyFontScale(this.fontScale)
         this.theme = d.theme || 'orange'
+        this.disabled = d.qrEnabled === false
       })
       .catch(() => {})
 

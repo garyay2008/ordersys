@@ -7,6 +7,7 @@ const Combo = require('../../models/Combo')
 const ModCode = require('../../models/ModCode')
 const ModCodeCategory = require('../../models/ModCodeCategory')
 const PosSetting = require('../../models/PosSetting')
+const QrSetting = require('../../models/QrSetting')
 const passport = require('passport')
 const formidable = require('formidable')
 const fs = require('fs')
@@ -365,6 +366,12 @@ router.get('/menu', async (req, res) => {
     await dailySoldOutReset()
     const mode = req.query.mode || '堂食'
     const channel = req.query.channel === 'qr' ? 'qr' : 'pos'
+    if (channel === 'qr') {
+      const qrSetting = await QrSetting.findOne().lean().exec()
+      if (qrSetting && qrSetting.qrEnabled === false) {
+        return res.status(403).send('QR 點餐已停用')
+      }
+    }
     const categoryResult = await Category.find({
       $and: [
         {
